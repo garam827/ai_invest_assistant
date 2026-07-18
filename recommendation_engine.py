@@ -9,6 +9,10 @@ Streamlit-independent so the exact same logic can run from app.py's chart tabs (
 one ticker at a time, on user demand) and from a cron job (batch, no caching needed since
 it only runs once/day). CLI entry point runs the batch version for data_fetcher.ASSET_CLASS_TICKERS
 only — not all 500+ S&P 500 stocks, to keep LLM/news API usage bounded.
+
+If TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are configured, run_asset_class_recommendations also
+sends a Telegram summary (all tickers) + a chart image per 매수/매도 ticker (see
+telegram_notifier.py) — cron-only, not triggered by the interactive Streamlit UI.
 """
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ import data_fetcher
 import news_fetcher
 import openrouter_briefing
 import signal_engine
+import telegram_notifier
 from drive_db import DriveDB
 
 logger = logging.getLogger(__name__)
@@ -125,6 +130,14 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         # Don't let a transient Drive/network failure on the final save discard the
         # per-ticker work already done — the caller still gets the in-memory results.
         logger.exception("Failed to persist recommendations to Drive (results still returned)")
+
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+        try:
+            telegram_notifier.notify_recommendations(drive_db, results)
+        except Exception:
+            logger.exception("Failed to send Telegram notifications (results still returned)")
+    else:
+        logger.info("TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set, skipping Telegram notification")
 
     return results
 

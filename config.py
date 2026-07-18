@@ -57,3 +57,8 @@ OPENROUTER_MODEL_NAME = os.environ.get("OPENROUTER_MODEL_NAME", "nvidia/nemotron
 # (e.g. a per-ticker fetch silently failed during collection). 4 days covers a normal
 # weekend gap (Fri close -> Mon run) with one day of slack for a holiday.
 DATA_FRESHNESS_MAX_AGE_DAYS = int(os.environ.get("DATA_FRESHNESS_MAX_AGE_DAYS", "4"))
+
+# Telegram notifications for the daily asset-class recommendation run (cron only, not the
+# interactive Streamlit UI). Bot token from @BotFather; chat_id from e.g. api.telegram.org/bot<token>/getUpdates.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")

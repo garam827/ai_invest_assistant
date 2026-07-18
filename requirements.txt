@@ -1,5 +1,6 @@
 streamlit
 plotly
+kaleido
 pandas
 pyarrow
 yfinance

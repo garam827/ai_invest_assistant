@@ -14,10 +14,9 @@ from __future__ import annotations
 import logging
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
+import chart_builder
 import data_fetcher
 import recommendation_engine
 import signal_engine
@@ -145,117 +144,7 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
     m3.metric("트레일링 스탑", f"{latest['Trailing_Stop']:.2f}" if pd.notna(latest["Trailing_Stop"]) else "N/A")
     m4.metric("오늘 시그널", today_signal)
 
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.1,
-        row_heights=[0.6, 0.2, 0.2],
-        subplot_titles=(f"{ticker} 캔들차트 + 시그널 지표", "거래량 (거래량 급증일 강조)", "ATR (14일)"),
-    )
-
-    fig.add_trace(
-        go.Candlestick(
-            x=view["Date"],
-            open=view["Open"],
-            high=view["High"],
-            low=view["Low"],
-            close=view["Close"],
-            name="가격",
-            increasing_line_color="#26a69a",
-            decreasing_line_color="#ef5350",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["BB_Upper"], name="볼린저 상단", line=dict(color="rgba(120,144,156,0.6)", width=1)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=view["Date"],
-            y=view["BB_Lower"],
-            name="볼린저 하단",
-            line=dict(color="rgba(120,144,156,0.6)", width=1),
-            fill="tonexty",
-            fillcolor="rgba(120,144,156,0.12)",
-        ),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["BB_Middle"], name="볼린저 중심선(20일 SMA)", line=dict(color="#546e7a", width=1, dash="dash")),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Upper_20"], name="Donchian 상단(20일)", line=dict(color="#42a5f5", width=1, dash="dot")),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Lower_20"], name="Donchian 하단(20일)", line=dict(color="#42a5f5", width=1, dash="dot")),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Upper_100"], name="Donchian 상단(100일)", line=dict(color="#7e57c2", width=1, dash="dash")),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Lower_100"], name="Donchian 하단(100일)", line=dict(color="#7e57c2", width=1, dash="dash")),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Trailing_Stop"], name="트레일링 스탑", line=dict(color="#ef5350", width=1.5)),
-        row=1,
-        col=1,
-    )
-
-    buy_points = view[view["Buy_Trigger"]]
-    fig.add_trace(
-        go.Scatter(
-            x=buy_points["Date"],
-            y=buy_points["Low"] * 0.99,
-            mode="markers",
-            name="매수 시그널",
-            marker=dict(symbol="triangle-up", size=11, color="#2e7d32", line=dict(width=1, color="#1b5e20")),
-        ),
-        row=1,
-        col=1,
-    )
-    sell_points = view[view["Sell_Trigger"]]
-    fig.add_trace(
-        go.Scatter(
-            x=sell_points["Date"],
-            y=sell_points["High"] * 1.01,
-            mode="markers",
-            name="청산 시그널",
-            marker=dict(symbol="triangle-down", size=11, color="#c62828", line=dict(width=1, color="#7f0000")),
-        ),
-        row=1,
-        col=1,
-    )
-
-    volume_colors = ["#ff7043" if surge else "#90a4ae" for surge in view["Volume_Surge"]]
-    fig.add_trace(go.Bar(x=view["Date"], y=view["Volume"], name="거래량", marker_color=volume_colors), row=2, col=1)
-
-    fig.add_trace(go.Scatter(x=view["Date"], y=view["ATR"], name="ATR", line=dict(color="#ffa726", width=1.5)), row=3, col=1)
-
-    fig.update_layout(
-        height=950,
-        xaxis_rangeslider_visible=False,
-        hovermode="x unified",
-        template="plotly_white",
-        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, bgcolor="rgba(0,0,0,0)"),
-        margin=dict(t=60, b=20, r=160, l=40),
-    )
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
+    fig = chart_builder.build_ticker_chart_figure(ticker, view)
 
     with st.container(border=True):
         st.plotly_chart(fig, width="stretch", key=f"{key_prefix}_chart")
