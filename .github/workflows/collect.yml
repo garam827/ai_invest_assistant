@@ -28,6 +28,3 @@ jobs:
 
       - name: Sync S&P 500 + asset-class OHLCV data
         run: python data_fetcher.py update
-
-      - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
-        run: python recommendation_engine.py

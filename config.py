@@ -52,3 +52,8 @@ EXA_NEWS_LOOKBACK_DAYS = int(os.environ.get("EXA_NEWS_LOOKBACK_DAYS", "7"))
 # OpenRouter LLM ("Mr. Serenity" briefing)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_MODEL_NAME = os.environ.get("OPENROUTER_MODEL_NAME", "nvidia/nemotron-3-ultra-550b-a55b:free")
+
+# Recommendation freshness gate — skip generating a 매수/HOLD/매도 call from stale data
+# (e.g. a per-ticker fetch silently failed during collection). 4 days covers a normal
+# weekend gap (Fri close -> Mon run) with one day of slack for a holiday.
+DATA_FRESHNESS_MAX_AGE_DAYS = int(os.environ.get("DATA_FRESHNESS_MAX_AGE_DAYS", "4"))

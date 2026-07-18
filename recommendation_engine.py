@@ -10,6 +10,9 @@ from __future__ import annotations
 import datetime
 import logging
 
+import pandas as pd
+
+import config
 import data_fetcher
 import news_fetcher
 import openrouter_briefing
@@ -21,13 +24,31 @@ logger = logging.getLogger(__name__)
 RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 
 
+def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNESS_MAX_AGE_DAYS) -> bool:
+    """True if the most recent stored bar is within max_age_days of now.
+
+    Guards against generating a recommendation from stale data when collection silently
+    failed for one ticker (data_fetcher logs and skips per-ticker errors rather than
+    failing the whole run, so a green workflow run doesn't guarantee every ticker updated).
+    """
+    last_date = pd.to_datetime(raw_df["Date"]).max()
+    age_days = (pd.Timestamp.now(tz="UTC").tz_localize(None) - last_date).days
+    return age_days <= max_age_days
+
+
 def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None:
     """Fetch news (Exa), archive it, and get a mechanical 매수/HOLD/매도 call for one ticker.
 
-    Returns None if the ticker has no data in Drive yet.
+    Returns None if the ticker has no data in Drive yet, or if that data is stale
+    (see _is_data_fresh) — a stale-data recommendation would be misleading.
     """
     raw_df = drive_db.load_ticker(ticker)
     if raw_df is None or raw_df.empty:
+        return None
+    if not _is_data_fresh(raw_df):
+        logger.warning(
+            "%s data is stale (last bar %s), skipping recommendation", ticker, raw_df["Date"].max()
+        )
         return None
 
     news = news_fetcher.fetch_ticker_news_exa(ticker)

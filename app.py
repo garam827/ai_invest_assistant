@@ -263,6 +263,9 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
     st.subheader("Mr. Serenity의 매매 추천")
     try:
         reco = get_recommendation(ticker, str(latest["Date"]))
+        if reco is None:
+            st.info("데이터가 오래되어(신선도 기준 초과) 추천을 생성하지 않았습니다. '데이터 적재' 탭에서 갱신해주세요.")
+            return
         action_color = {"매수": "green", "HOLD": "gray", "매도": "red"}.get(reco["action"], "gray")
         st.markdown(f"#### :{action_color}[추천: {reco['action']}]")
         st.write(reco["text"])

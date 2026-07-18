@@ -1,0 +1,35 @@
+name: Asset-class recommendations
+
+on:
+  # Chains after "Daily data collection" finishes, rather than a fixed time offset — more
+  # robust than guessing how long collection takes. Only proceeds if that run succeeded
+  # (see the job-level `if` below); per-ticker staleness is still re-checked in code
+  # (recommendation_engine._is_data_fresh) since a "successful" collection run can still
+  # have silently skipped individual tickers.
+  workflow_run:
+    workflows: ["Daily data collection"]
+    types: [completed]
+  workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
+
+jobs:
+  recommend:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
+      GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
+      DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL_NAME: ${{ secrets.OPENROUTER_MODEL_NAME }}
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
+        run: python recommendation_engine.py
