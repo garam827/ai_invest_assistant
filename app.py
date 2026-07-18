@@ -19,8 +19,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 import data_fetcher
-import news_fetcher
-import openrouter_briefing
+import recommendation_engine
 import signal_engine
 from drive_db import DriveDB
 
@@ -91,14 +90,10 @@ def load_ticker_data(ticker: str) -> pd.DataFrame | None:
 def get_recommendation(ticker: str, latest_date: str) -> dict:
     """Cached by (ticker, latest bar date) — LLM/news calls only happen once per new trading
     day per ticker, not on every rerun/tab-switch (st.tabs bodies all execute every rerun).
-    Also archives the fetched news to Drive (deduped by article link) for later audit.
+    Delegates to recommendation_engine so the cron job (recommendation_engine.py) and this
+    UI share the exact same logic.
     """
-    raw_df = load_ticker_data(ticker)
-    news = news_fetcher.fetch_ticker_news_exa(ticker)
-    news_fetcher.archive_news(get_drive_db(), ticker, news)
-    summary = signal_engine.get_latest_signal_summary(raw_df)
-    reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
-    return {"action": reco["action"], "text": reco["text"], "news": news}
+    return recommendation_engine.get_recommendation_for_ticker(get_drive_db(), ticker)
 
 
 class _StreamlitLogHandler(logging.Handler):

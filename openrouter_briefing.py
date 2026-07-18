@@ -67,7 +67,16 @@ def _call_chat(system_prompt: str, user_prompt: str) -> str:
         timeout=60,
     )
     response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"].strip()
+    data = response.json()
+
+    if "choices" not in data:
+        # Free-tier models occasionally return a 200 with no choices (rate limit, provider
+        # hiccup, etc.) instead of a proper error status. Surface the actual reason instead
+        # of letting a bare KeyError obscure it.
+        error_message = (data.get("error") or {}).get("message", str(data)[:300])
+        raise RuntimeError(f"OpenRouter response missing 'choices': {error_message}")
+
+    return data["choices"][0]["message"]["content"].strip()
 
 
 def generate_briefing(ticker: str, news_items: list[dict]) -> str:
