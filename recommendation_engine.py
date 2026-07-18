@@ -1,5 +1,10 @@
 """Shared 'Mr. Serenity' recommendation logic (news + signal state -> 매수/HOLD/매도).
 
+The 매수/HOLD/매도 action is always decided mechanically (signal_engine.get_mechanical_action,
+no network call) — the LLM/Exa news call only runs on a 매수/매도 day, to add a narrative
+explanation, and is skipped entirely on HOLD days (the common case) to keep OpenRouter/Exa
+usage low and immune to rate limits.
+
 Streamlit-independent so the exact same logic can run from app.py's chart tabs (cached,
 one ticker at a time, on user demand) and from a cron job (batch, no caching needed since
 it only runs once/day). CLI entry point runs the batch version for data_fetcher.ASSET_CLASS_TICKERS
@@ -37,7 +42,13 @@ def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNE
 
 
 def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None:
-    """Fetch news (Exa), archive it, and get a mechanical 매수/HOLD/매도 call for one ticker.
+    """Get a 매수/HOLD/매도 call for one ticker.
+
+    The action itself always comes from signal_engine.get_mechanical_action — deterministic,
+    no network call. On a HOLD day (the common case for a slow-moving trend-following system)
+    that's all we return: no news fetch, no LLM call, nothing that can rate-limit. Only on a
+    매수/매도 day do we fetch news (Exa) and ask the LLM for a narrative explanation — the LLM's
+    own parsed action is logged if it disagrees, but never overrides the mechanical one.
 
     Returns None if the ticker has no data in Drive yet, or if that data is stale
     (see _is_data_fresh) — a stale-data recommendation would be misleading.
@@ -51,14 +62,34 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
         )
         return None
 
+    summary = signal_engine.get_latest_signal_summary(raw_df)
+    action = signal_engine.get_mechanical_action(summary)
+
+    if action == "HOLD":
+        return {
+            "ticker": ticker,
+            "action": "HOLD",
+            "text": "오늘은 매수 돌파도 청산 시그널도 발생하지 않아 HOLD입니다. (기계적 규칙 기반 판정 — 뉴스/LLM 분석은 매수·매도 시그널이 발생한 날에만 수행합니다.)",
+            "news": [],
+            "close": summary["close"],
+            "date": str(summary["date"]),
+        }
+
     news = news_fetcher.fetch_ticker_news_exa(ticker)
     news_fetcher.archive_news(drive_db, ticker, news)
-    summary = signal_engine.get_latest_signal_summary(raw_df)
     reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
+
+    if reco["action"] != action:
+        logger.warning(
+            "%s: LLM action (%s) disagreed with mechanical rule (%s) — using the mechanical one",
+            ticker,
+            reco["action"],
+            action,
+        )
 
     return {
         "ticker": ticker,
-        "action": reco["action"],
+        "action": action,
         "text": reco["text"],
         "news": news,
         "close": summary["close"],
@@ -79,7 +110,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         try:
             reco = get_recommendation_for_ticker(drive_db, ticker)
             if reco is None:
-                logger.warning("No data for %s yet, skipping recommendation", ticker)
+                logger.warning("No data (or stale data) for %s, skipping recommendation", ticker)
                 continue
             results[ticker] = reco
             logger.info("%s -> 추천: %s", ticker, reco["action"])

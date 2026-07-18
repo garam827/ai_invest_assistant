@@ -126,6 +126,19 @@ def get_latest_signal_summary(
     return summary
 
 
+def get_mechanical_action(summary: dict) -> str:
+    """Deterministic 매수/HOLD/매도 call from the Donchian/trailing-stop rules alone — no
+    LLM or news involved. Takes a get_latest_signal_summary() dict. This is the authoritative
+    action: an LLM may add commentary, but Tom Basso's system is rule-based, not news-driven,
+    so the actual buy/hold/sell call should never depend on a network call succeeding.
+    """
+    if summary["breakout_20"] or summary["breakout_100"]:
+        return "매수"
+    if summary["exit_signal"]:
+        return "매도"
+    return "HOLD"
+
+
 def scan_for_signals(
     ticker_data: dict[str, pd.DataFrame],
     equity: float | None = None,
