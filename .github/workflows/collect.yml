@@ -1,0 +1,30 @@
+name: Daily data collection
+
+on:
+  schedule:
+    # 22:30 UTC ≈ 18:30 EDT / 17:30 EST — safely after the 16:00 ET market close either way.
+    # GitHub Actions cron is UTC-only and best-effort (can be delayed under platform load).
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run S&P 500 + asset-class collection
+        env:
+          GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
+          GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_NAME: ${{ secrets.OPENROUTER_MODEL_NAME }}
+          EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+        run: python data_fetcher.py update

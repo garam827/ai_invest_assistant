@@ -1,0 +1,466 @@
+"""Streamlit entry point (single page, tab-separated): [기능 4].
+
+Tab 1 — 소개: 이 프로그램의 목표, 톰 바소 철학, 사용된 지표 설명. 분석 기능은 없다.
+Tab 2 — 대표 자산군 분석: 톰 바소 추세추종 시스템을 data_fetcher.ASSET_CLASS_TICKERS(주식/암호화폐/
+채권/원자재 카테고리, ETF 또는 현물 프록시)에 적용.
+Tab 3 — 종목 차트 (S&P 500): 개별 종목 차트.
+Tab 4 — 데이터 적재: S&P 500 유니버스 동기화 + 전 종목/자산군 시세 갱신을 한 번에 실행.
+
+두 차트 탭(2, 3) 모두 같은 render_ticker_chart를 공유한다: 캔들+지표 오버레이,
+과거 매수/청산 시그널 발생일 마커, 그리고 뉴스+시그널 상태 기반 LLM 매매 추천.
+"""
+from __future__ import annotations
+
+import logging
+
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
+
+import data_fetcher
+import news_fetcher
+import openrouter_briefing
+import signal_engine
+from drive_db import DriveDB
+
+st.set_page_config(page_title="추세추종 투자 어시스턴트", layout="wide")
+
+PERIOD_OPTIONS = {
+    "1개월": 30,
+    "3개월": 90,
+    "6개월": 180,
+    "1년": 365,
+    "2년": 730,
+    "전체": None,
+}
+DEFAULT_PERIOD_LABEL = "6개월"
+ALL_SECTORS_LABEL = "전체"
+
+INDICATOR_TABLE = pd.DataFrame(
+    [
+        {
+            "지표": "볼린저 밴드 (20일 SMA ± 2표준편차)",
+            "설명": "최근 20일 종가의 변동성(표준편차) 기반 밴드. 상단 근접=단기 과매수, 하단 근접=단기 과매도로 흔히 해석되고, 밴드 폭 축소(스퀴즈)는 변동성 확대·돌파 임박 신호로도 봅니다. 톰 바소 매매 규칙(Donchian/ATR)에 직접 쓰이진 않는 보조 참고 지표.",
+        },
+        {
+            "지표": "Donchian Channel (20일/100일)",
+            "설명": "최근 N일간 고가·저가로 만든 밴드. 종가가 20일 상단선을 상향 돌파하면 매수 시그널, 100일 상단선은 더 장기적인 추세 확인용 보조 지표.",
+        },
+        {
+            "지표": "ATR (Average True Range, 14일, Wilder's smoothing)",
+            "설명": "최근 변동성 크기. 값이 클수록 하루 변동폭이 크다는 뜻이며, 손절폭·포지션 사이징 계산의 기준.",
+        },
+        {
+            "지표": "트레일링 스탑 = 최근 20일 최고가 − 3 × ATR",
+            "설명": "추세를 따라 함께 올라가는 손절선. 종가가 이 선 아래로 내려오면 청산(매도) 시그널.",
+        },
+        {
+            "지표": "거래량 급증 (Volume Surge)",
+            "설명": "당일 거래량이 최근 20일 평균 거래량의 1.5배 이상이면 거래량 차트에서 강조 표시. 돌파 신뢰도를 가늠하는 가짜 돌파 필터.",
+        },
+        {
+            "지표": "매수/청산 시그널 마커 (▲ / ▼)",
+            "설명": "초록 세모(▲)는 Donchian 상단 돌파가 처음 발생한 날(매수 트리거), 빨간 세모(▼)는 트레일링 스탑 하향 이탈이 처음 발생한 날(청산 트리거). 추세가 지속되는 동안 매일 반복 표시하지 않고, 신호가 새로 발생한 날만 표시.",
+        },
+    ]
+).set_index("지표")
+
+
+@st.cache_resource
+def get_drive_db() -> DriveDB:
+    return DriveDB()
+
+
+@st.cache_data(ttl=3600, show_spinner="Drive에서 종목 목록 불러오는 중...")
+def get_universe() -> dict:
+    db = get_drive_db()
+    universe = db.load_json(data_fetcher.UNIVERSE_FILENAME)
+    if not universe:
+        return {"tickers": sorted(db.list_tickers()), "sectors": {}}
+    tickers = sorted(universe.get("active_tickers") or db.list_tickers())
+    return {"tickers": tickers, "sectors": universe.get("sectors", {})}
+
+
+@st.cache_data(ttl=3600, show_spinner="Drive에서 시세 불러오는 중...")
+def load_ticker_data(ticker: str) -> pd.DataFrame | None:
+    return get_drive_db().load_ticker(ticker)
+
+
+@st.cache_data(ttl=86400, show_spinner="뉴스 수집 및 LLM 분석 중...")
+def get_recommendation(ticker: str, latest_date: str) -> dict:
+    """Cached by (ticker, latest bar date) — LLM/news calls only happen once per new trading
+    day per ticker, not on every rerun/tab-switch (st.tabs bodies all execute every rerun).
+    Also archives the fetched news to Drive (deduped by article link) for later audit.
+    """
+    raw_df = load_ticker_data(ticker)
+    news = news_fetcher.fetch_ticker_news_exa(ticker)
+    news_fetcher.archive_news(get_drive_db(), ticker, news)
+    summary = signal_engine.get_latest_signal_summary(raw_df)
+    reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
+    return {"action": reco["action"], "text": reco["text"], "news": news}
+
+
+class _StreamlitLogHandler(logging.Handler):
+    """Streams log records into a Streamlit code block, throttled to avoid excessive redraws."""
+
+    def __init__(self, placeholder, flush_every: int = 5):
+        super().__init__()
+        self.placeholder = placeholder
+        self.flush_every = flush_every
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(self.format(record))
+        if len(self.lines) % self.flush_every == 0:
+            self._flush()
+
+    def _flush(self) -> None:
+        self.placeholder.code("\n".join(self.lines[-300:]))
+
+
+def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefix: str) -> None:
+    """Shared chart+metrics+LLM-recommendation renderer, used by both the asset-class and S&P tabs."""
+    raw_df = load_ticker_data(ticker)
+    if raw_df is None or raw_df.empty:
+        st.warning(f"{ticker} 데이터가 없습니다. '데이터 적재' 탭에서 먼저 수집해주세요.")
+        return
+
+    # Donchian(100일)/ATR은 룩백이 필요하므로 전체 히스토리로 지표를 계산한 뒤, 화면 표시 구간만 잘라낸다.
+    signals = signal_engine.compute_signals(raw_df)
+
+    period_days = PERIOD_OPTIONS[period_label]
+    view = signals if period_days is None else signals[signals["Date"] >= signals["Date"].max() - pd.Timedelta(days=period_days)]
+
+    latest = signals.iloc[-1]
+    prev_close = signals.iloc[-2]["Close"] if len(signals) > 1 else latest["Close"]
+    change = latest["Close"] - prev_close
+    change_pct = (change / prev_close * 100) if prev_close else 0.0
+
+    today_signal = "매수 돌파" if (latest["Breakout_20"] or latest["Breakout_100"]) else "-"
+    if latest["Volume_Surge"] and today_signal == "-":
+        today_signal = "거래량 급증"
+
+    header_col, m1, m2, m3, m4 = st.columns([2, 1, 1, 1, 1])
+    header_col.markdown(f"## {ticker}")
+    if subtitle:
+        header_col.caption(subtitle)
+    m1.metric("현재가", f"{latest['Close']:.2f}", delta=f"{change:+.2f} ({change_pct:+.2f}%)")
+    m2.metric("ATR (14일)", f"{latest['ATR']:.2f}" if pd.notna(latest["ATR"]) else "N/A")
+    m3.metric("트레일링 스탑", f"{latest['Trailing_Stop']:.2f}" if pd.notna(latest["Trailing_Stop"]) else "N/A")
+    m4.metric("오늘 시그널", today_signal)
+
+    fig = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.1,
+        row_heights=[0.6, 0.2, 0.2],
+        subplot_titles=(f"{ticker} 캔들차트 + 시그널 지표", "거래량 (거래량 급증일 강조)", "ATR (14일)"),
+    )
+
+    fig.add_trace(
+        go.Candlestick(
+            x=view["Date"],
+            open=view["Open"],
+            high=view["High"],
+            low=view["Low"],
+            close=view["Close"],
+            name="가격",
+            increasing_line_color="#26a69a",
+            decreasing_line_color="#ef5350",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["BB_Upper"], name="볼린저 상단", line=dict(color="rgba(120,144,156,0.6)", width=1)),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=view["Date"],
+            y=view["BB_Lower"],
+            name="볼린저 하단",
+            line=dict(color="rgba(120,144,156,0.6)", width=1),
+            fill="tonexty",
+            fillcolor="rgba(120,144,156,0.12)",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["BB_Middle"], name="볼린저 중심선(20일 SMA)", line=dict(color="#546e7a", width=1, dash="dash")),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Donchian_Upper_20"], name="Donchian 상단(20일)", line=dict(color="#42a5f5", width=1, dash="dot")),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Donchian_Lower_20"], name="Donchian 하단(20일)", line=dict(color="#42a5f5", width=1, dash="dot")),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Donchian_Upper_100"], name="Donchian 상단(100일)", line=dict(color="#7e57c2", width=1, dash="dash")),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Donchian_Lower_100"], name="Donchian 하단(100일)", line=dict(color="#7e57c2", width=1, dash="dash")),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Trailing_Stop"], name="트레일링 스탑", line=dict(color="#ef5350", width=1.5)),
+        row=1,
+        col=1,
+    )
+
+    buy_points = view[view["Buy_Trigger"]]
+    fig.add_trace(
+        go.Scatter(
+            x=buy_points["Date"],
+            y=buy_points["Low"] * 0.99,
+            mode="markers",
+            name="매수 시그널",
+            marker=dict(symbol="triangle-up", size=11, color="#2e7d32", line=dict(width=1, color="#1b5e20")),
+        ),
+        row=1,
+        col=1,
+    )
+    sell_points = view[view["Sell_Trigger"]]
+    fig.add_trace(
+        go.Scatter(
+            x=sell_points["Date"],
+            y=sell_points["High"] * 1.01,
+            mode="markers",
+            name="청산 시그널",
+            marker=dict(symbol="triangle-down", size=11, color="#c62828", line=dict(width=1, color="#7f0000")),
+        ),
+        row=1,
+        col=1,
+    )
+
+    volume_colors = ["#ff7043" if surge else "#90a4ae" for surge in view["Volume_Surge"]]
+    fig.add_trace(go.Bar(x=view["Date"], y=view["Volume"], name="거래량", marker_color=volume_colors), row=2, col=1)
+
+    fig.add_trace(go.Scatter(x=view["Date"], y=view["ATR"], name="ATR", line=dict(color="#ffa726", width=1.5)), row=3, col=1)
+
+    fig.update_layout(
+        height=950,
+        xaxis_rangeslider_visible=False,
+        hovermode="x unified",
+        template="plotly_white",
+        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, bgcolor="rgba(0,0,0,0)"),
+        margin=dict(t=60, b=20, r=160, l=40),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
+
+    with st.container(border=True):
+        st.plotly_chart(fig, width="stretch", key=f"{key_prefix}_chart")
+
+    st.subheader("Mr. Serenity의 매매 추천")
+    try:
+        reco = get_recommendation(ticker, str(latest["Date"]))
+        action_color = {"매수": "green", "HOLD": "gray", "매도": "red"}.get(reco["action"], "gray")
+        st.markdown(f"#### :{action_color}[추천: {reco['action']}]")
+        st.write(reco["text"])
+
+        news_items = reco.get("news", [])
+        if news_items:
+            st.markdown("###### 분석에 사용된 뉴스")
+            for item in news_items:
+                with st.container(border=True):
+                    title = item.get("title", "")
+                    link = item.get("link", "")
+                    st.markdown(f"**[{title}]({link})**" if link else f"**{title}**")
+                    meta = " · ".join(filter(None, [item.get("publisher", ""), item.get("published_at", "")]))
+                    if meta:
+                        st.caption(meta)
+                    if item.get("summary"):
+                        st.write(item["summary"])
+    except Exception as e:
+        st.error(f"LLM 분석 실패: {e}")
+
+
+tab_intro, tab_asset, tab_sp500, tab_collect = st.tabs(
+    ["소개", "대표 자산군 분석", "종목 차트 (S&P 500)", "데이터 적재"]
+)
+
+# ---------------------------------------------------------------------------
+# 탭 1: 소개 — 분석 기능 없이 프로그램 목표/철학/지표 설명만. 실제 지표 분석은 탭 2부터.
+# ---------------------------------------------------------------------------
+with tab_intro:
+    st.header("톰 바소 스타일 추세추종 투자 어시스턴트")
+
+    with st.expander("이 프로그램에 대하여 — 톰 바소(Tom Basso)의 투자 철학", expanded=True):
+        st.markdown(
+            """
+이 앱은 전설적인 시스템 트레이더 **톰 바소(Tom Basso)** — 별명 "미스터 세레니티(Mr. Serenity)" — 의 투자 철학을 규칙 기반 소프트웨어로 구현한 추세추종(Trend Following) 투자 어시스턴트입니다.
+
+**톰 바소의 핵심 철학**
+- **감정을 배제한 기계적 시스템**: 시장이 어디로 갈지 예측하지 않는다. 가격이 실제로 움직인 뒤, 정해진 규칙대로만 반응한다.
+- **추세는 친구다**: 상승 추세가 확인되면(Donchian 채널 상단 돌파) 올라타고, 추세가 꺾이면(트레일링 스탑 이탈) 미련 없이 나온다.
+- **손실은 짧게, 수익은 길게**: ATR 기반 변동성 손절로 한 번의 손실이 자산에 미치는 영향을 제한하고(리스크 기본 1%), 추세가 지속되는 동안은 트레일링 스탑만 따라 올리며 수익을 최대한 태운다.
+- **평온함(Serenity)**: 뉴스의 공포와 탐욕에 휘둘리지 않는다. 이 앱의 LLM은 뉴스를 "규칙적 시그널을 뒷받침하는 팩트"와 "무시해도 되는 소음"으로만 걸러내도록 설계되어 있다.
+
+**이 프로그램의 목표**
+1. S&P 500 개별 종목 + 대표 자산군(S&P 500 지수·비트코인·금·미국 국채·원자재)에 동일한 규칙 기반 시스템을 자동 적용
+2. 매일 시세를 수집·축적하고 Donchian/ATR/트레일링 스탑을 자동 계산
+3. 시그널 관련 뉴스를 수집해 LLM이 노이즈를 걸러내고, 규칙에 따른 매수/HOLD/매도를 추천
+4. 사람의 감정이 아니라 시스템이 판단하게 함으로써 일관되고 반복 가능한 투자 의사결정을 돕는다
+
+실제 분석은 **"대표 자산군 분석"**, **"종목 차트 (S&P 500)"** 탭에서 진행합니다.
+"""
+        )
+
+    with st.expander("사용된 지표 설명", expanded=True):
+        st.table(INDICATOR_TABLE)
+
+# ---------------------------------------------------------------------------
+# 탭 2: 대표 자산군 분석 — S&P 500 자체(및 비트코인/금/미국채/원자재)도 동일한 추세추종 규칙을
+# ETF(또는 현물) 프록시로 적용할 수 있다. 원지수(^GSPC 등)는 직접 거래할 수 없고 거래량
+# 데이터도 부실하므로, 유동성이 높은 프록시로 대신 추적한다.
+# ---------------------------------------------------------------------------
+with tab_asset:
+    st.header("대표 자산군별 추세추종 분석")
+    st.caption("S&P 500·비트코인·금·미국 국채·원자재(원유/천연가스/농산물/구리 등)를 유동성 높은 ETF(또는 현물)로 대신 추적해 동일한 Donchian/ATR 규칙을 적용합니다.")
+
+    if "selected_asset_ticker" not in st.session_state:
+        st.session_state.selected_asset_ticker = None
+        st.session_state.selected_asset_period = DEFAULT_PERIOD_LABEL
+
+    # 카테고리 선택은 폼 밖에 둬서 클릭 즉시 세부 종목 드롭다운을 좁혀준다 (탭2의 섹터 필터와 동일 패턴).
+    asset_categories = sorted({info["category"] for info in data_fetcher.ASSET_CLASS_TICKERS.values()})
+    asset_category = st.selectbox("자산군 카테고리", asset_categories, key="asset_category_select")
+    filtered_assets = [
+        (ticker, info["label"]) for ticker, info in data_fetcher.ASSET_CLASS_TICKERS.items() if info["category"] == asset_category
+    ]
+    asset_label_to_ticker = {label: ticker for ticker, label in filtered_assets}
+
+    with st.form("asset_controls"):
+        col1, col2, col3 = st.columns([2, 2, 1])
+        with col1:
+            asset_label = col1.selectbox(f"세부 종목 ({len(filtered_assets)}개)", list(asset_label_to_ticker), key="asset_label_select")
+        with col2:
+            asset_period_label = col2.selectbox(
+                "표시 기간",
+                list(PERIOD_OPTIONS.keys()),
+                index=list(PERIOD_OPTIONS).index(DEFAULT_PERIOD_LABEL),
+                key="asset_period_select",
+            )
+        with col3:
+            st.write("")
+            asset_submitted = st.form_submit_button("조회", type="primary", width="stretch")
+
+    if asset_submitted:
+        st.session_state.selected_asset_ticker = asset_label_to_ticker[asset_label]
+        st.session_state.selected_asset_period = asset_period_label
+
+    if st.session_state.selected_asset_ticker is None:
+        st.info("자산군 카테고리 → 세부 종목 → 기간을 선택하고 '조회'를 눌러주세요.")
+    else:
+        active_asset_ticker = st.session_state.selected_asset_ticker
+        render_ticker_chart(
+            active_asset_ticker,
+            st.session_state.selected_asset_period,
+            subtitle=data_fetcher.ASSET_CLASS_TICKERS[active_asset_ticker]["label"],
+            key_prefix="asset",
+        )
+
+# ---------------------------------------------------------------------------
+# 탭 2: 종목 차트 (S&P 500) — 개별 종목 분석
+# ---------------------------------------------------------------------------
+with tab_sp500:
+    st.header("종목별 시그널 차트 (S&P 500)")
+
+    universe = get_universe()
+    all_tickers = universe["tickers"]
+    sector_map = universe["sectors"]
+
+    if not all_tickers:
+        st.warning("Drive에 저장된 종목이 없습니다. '데이터 적재' 탭에서 먼저 데이터를 적재해주세요.")
+    else:
+        if "selected_sp500_ticker" not in st.session_state:
+            st.session_state.selected_sp500_ticker = None
+            st.session_state.selected_sp500_period = DEFAULT_PERIOD_LABEL
+
+        # 섹터 선택은 폼 밖에 둬서 클릭 즉시 종목 드롭다운을 좁혀준다 (차트 재계산은 아직 안 함).
+        sector_options = [ALL_SECTORS_LABEL] + sorted(set(sector_map.values())) if sector_map else [ALL_SECTORS_LABEL]
+        sector = st.selectbox("섹터/테마", sector_options, key="sp500_sector_select")
+        filtered_tickers = all_tickers if sector == ALL_SECTORS_LABEL else [t for t in all_tickers if sector_map.get(t) == sector]
+
+        with st.form("sp500_controls"):
+            col1, col2, col3 = st.columns([2, 2, 1])
+            with col1:
+                ticker = col1.selectbox(f"종목 선택 ({len(filtered_tickers)}개)", filtered_tickers, key="sp500_ticker_select")
+            with col2:
+                period_label = col2.selectbox(
+                    "표시 기간",
+                    list(PERIOD_OPTIONS.keys()),
+                    index=list(PERIOD_OPTIONS).index(DEFAULT_PERIOD_LABEL),
+                    key="sp500_period_select",
+                )
+            with col3:
+                st.write("")
+                submitted = st.form_submit_button("조회", type="primary", width="stretch")
+
+        if submitted:
+            st.session_state.selected_sp500_ticker = ticker
+            st.session_state.selected_sp500_period = period_label
+
+        if st.session_state.selected_sp500_ticker is None:
+            st.info("섹터 → 종목 → 기간을 선택하고 '조회'를 눌러주세요.")
+        else:
+            active_ticker = st.session_state.selected_sp500_ticker
+            render_ticker_chart(
+                active_ticker,
+                st.session_state.selected_sp500_period,
+                subtitle=sector_map.get(active_ticker, ""),
+                key_prefix="sp500",
+            )
+
+# ---------------------------------------------------------------------------
+# 탭 3: 데이터 적재
+# ---------------------------------------------------------------------------
+with tab_collect:
+    st.header("전체 데이터 적재")
+    st.write(
+        "S&P 500 종목 유니버스를 최신 상태로 동기화(편입/편출 반영)하고, "
+        "전 종목 및 대표 자산군 ETF(SPY/GLD/TLT/DBC)의 최신 시세를 Google Drive에 적재합니다."
+    )
+
+    if st.button("전체 데이터 적재", type="primary"):
+        log_placeholder = st.empty()
+        handler = _StreamlitLogHandler(log_placeholder)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+
+        root_logger = logging.getLogger()
+        previous_level = root_logger.level
+        root_logger.addHandler(handler)
+        root_logger.setLevel(logging.INFO)
+
+        try:
+            with st.spinner("진행 중... (500여 종목 처리라 수 분~수십 분 걸릴 수 있습니다)"):
+                db = DriveDB()
+                sync_result = data_fetcher.run_full_collection(db)
+            handler._flush()
+            st.success(
+                f"완료! 활성 종목 {len(sync_result['active'])}개 "
+                f"(신규 편입 {len(sync_result['added'])}개, 편출 {len(sync_result['inactive'])}개) "
+                f"+ 자산군 ETF {len(data_fetcher.ASSET_CLASS_TICKERS)}개"
+            )
+            get_universe.clear()
+            load_ticker_data.clear()
+        except Exception as e:
+            handler._flush()
+            st.error(f"오류 발생: {e}")
+        finally:
+            root_logger.removeHandler(handler)
+            root_logger.setLevel(previous_level)

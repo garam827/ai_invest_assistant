@@ -1,0 +1,11 @@
+streamlit
+plotly
+pandas
+pyarrow
+yfinance
+lxml
+google-api-python-client
+google-auth
+google-auth-oauthlib
+requests
+python-dotenv
