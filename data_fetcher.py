@@ -33,18 +33,59 @@ UNIVERSE_FILENAME = "_universe.json"
 # Representative, liquid ETF (or spot, for BTC) proxies for major asset classes — raw indices
 # (e.g. ^GSPC) or yield quotes (e.g. ^TNX) aren't directly tradable and often lack reliable
 # volume data, so we track a tradable instrument instead. Fixed set, independent of S&P 500
-# membership (never touched by sync_universe's diffing). Each entry: {"label": 표시명, "category": 분류}.
+# membership (never touched by sync_universe's diffing).
+# Each entry: {"label": 표시명, "category": 분류, "description": 이 종목이 무엇인지 한 줄 설명}.
 ASSET_CLASS_TICKERS = {
-    "SPY": {"label": "S&P 500 (미국 대형주)", "category": "주식"},
-    "BTC-USD": {"label": "비트코인 (Bitcoin)", "category": "암호화폐"},
-    "GLD": {"label": "금 (Gold)", "category": "귀금속"},
-    "TLT": {"label": "미국 장기국채 (20년+)", "category": "채권"},
-    "IEF": {"label": "미국 중기국채 (7-10년)", "category": "채권"},
-    "DBC": {"label": "원자재 종합 (Broad Commodities)", "category": "원자재"},
-    "USO": {"label": "원유 (Crude Oil)", "category": "원자재"},
-    "UNG": {"label": "천연가스 (Natural Gas)", "category": "원자재"},
-    "DBA": {"label": "농산물 (Agriculture)", "category": "원자재"},
-    "CPER": {"label": "구리 (Copper)", "category": "원자재"},
+    "SPY": {
+        "label": "S&P 500 (미국 대형주)",
+        "category": "주식",
+        "description": "S&P 500 지수를 추종하는 대표 ETF",
+    },
+    "BTC-USD": {
+        "label": "비트코인 (Bitcoin)",
+        "category": "암호화폐",
+        "description": "비트코인 현물 가격(USD 기준)",
+    },
+    "GLD": {
+        "label": "금 (Gold)",
+        "category": "귀금속",
+        "description": "금 현물 가격을 추종하는 ETF",
+    },
+    "TLT": {
+        "label": "미국 장기국채 (20년+)",
+        "category": "채권",
+        "description": "만기 20년 이상 미국 국채에 투자하는 ETF",
+    },
+    "IEF": {
+        "label": "미국 중기국채 (7-10년)",
+        "category": "채권",
+        "description": "만기 7~10년 미국 국채에 투자하는 ETF",
+    },
+    "DBC": {
+        "label": "원자재 종합 (Broad Commodities)",
+        "category": "원자재",
+        "description": "에너지·금속·농산물 등 원자재 선물에 분산 투자하는 종합 ETF",
+    },
+    "USO": {
+        "label": "원유 (Crude Oil)",
+        "category": "원자재",
+        "description": "WTI 원유 선물 가격을 추종하는 ETF",
+    },
+    "UNG": {
+        "label": "천연가스 (Natural Gas)",
+        "category": "원자재",
+        "description": "천연가스 선물 가격을 추종하는 ETF",
+    },
+    "DBA": {
+        "label": "농산물 (Agriculture)",
+        "category": "원자재",
+        "description": "옥수수·대두·밀·설탕 등 주요 농산물 선물에 분산 투자하는 ETF",
+    },
+    "CPER": {
+        "label": "구리 (Copper)",
+        "category": "원자재",
+        "description": "구리 선물 가격을 추종하는 ETF (경기 선행지표로도 참고됨)",
+    },
 }
 
 
@@ -103,6 +144,11 @@ def sync_universe(drive_db: DriveDB) -> dict:
     table = _fetch_sp500_table()
     current_sp500 = set(table["Symbol"])
     sector_map = dict(zip(table["Symbol"], table["GICS Sector"]))
+    # "회사명 (세부업종)" — a lightweight per-ticker description built from data we already
+    # scrape, no extra requests. Shown as the S&P 500 chart tab's subtitle (see app.py).
+    description_map = {
+        row["Symbol"]: f"{row['Security']} ({row['GICS Sub-Industry']})" for _, row in table.iterrows()
+    }
     # Exclude asset-class ETF proxies from S&P membership accounting entirely — they're never
     # S&P 500 constituents, so without this they'd get diffed as "removed" on every sync.
     stored = set(drive_db.list_tickers()) - set(ASSET_CLASS_TICKERS)
@@ -121,6 +167,7 @@ def sync_universe(drive_db: DriveDB) -> dict:
             "active_tickers": active,
             "inactive_tickers": inactive,
             "sectors": {ticker: sector_map[ticker] for ticker in active},
+            "descriptions": {ticker: description_map[ticker] for ticker in active},
             "synced_at": pd.Timestamp.utcnow().isoformat(),
         },
     )

@@ -12,6 +12,7 @@ import requests
 
 import chart_builder
 import config
+import data_fetcher
 import signal_engine
 from drive_db import DriveDB
 
@@ -54,7 +55,10 @@ def format_summary(results: dict) -> str:
     lines = [f"*톰 바소 추세추종 일일 리포트* ({date})", ""]
     for ticker, reco in results.items():
         emoji = ACTION_EMOJI.get(reco["action"], "⚪")
+        description = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("description", "")
         lines.append(f"{emoji} `{ticker}` — *{reco['action']}*  (종가 {reco['close']:.2f})")
+        if description:
+            lines.append(f"_{description}_")
     return "\n".join(lines)
 
 
@@ -78,6 +82,10 @@ def notify_recommendations(drive_db: DriveDB, results: dict) -> None:
             view = signal_engine.compute_signals(raw_df)
             fig = chart_builder.build_ticker_chart_figure(ticker, view)
             image_bytes = fig.to_image(format="png", width=1400, height=1000, scale=2)
-            send_photo(image_bytes, caption=f"{ticker} — {results[ticker]['action']}")
+            description = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("description", "")
+            caption = f"{ticker} — {results[ticker]['action']}"
+            if description:
+                caption += f"\n{description}"
+            send_photo(image_bytes, caption=caption)
         except Exception:
             logger.exception("Failed to send Telegram chart for %s", ticker)

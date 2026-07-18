@@ -46,14 +46,37 @@ def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNE
     return age_days <= max_age_days
 
 
+def _build_rule_based_explanation(ticker: str, action: str, summary: dict, news: list[dict] | None = None) -> str:
+    """Deterministic fallback explanation when the news/LLM call fails — cites the exact
+    numeric rule that fired, so a 매수/매도 call is never sent with no reasoning at all.
+    """
+    lines = ["[규칙 기반 자동 생성 — LLM 분석 실패로 대체]"]
+    if action == "매수":
+        window = "20일" if summary["breakout_20"] else "100일"
+        lines.append(f"종가 {summary['close']:.2f}가 {window} Donchian 채널 상단을 상향 돌파해 매수 시그널이 발생했습니다.")
+    else:  # 매도
+        lines.append(
+            f"종가 {summary['close']:.2f}가 트레일링 스탑 {summary['trailing_stop']:.2f} 아래로 하향 이탈해 "
+            f"청산(매도) 시그널이 발생했습니다."
+        )
+    lines.append(
+        f"ATR(14일): {summary['atr']:.2f} · 트레일링 스탑: {summary['trailing_stop']:.2f} · "
+        f"거래량 급증: {'예' if summary['volume_surge'] else '아니오'}"
+    )
+    if news:
+        lines.append(f"(참고: 관련 뉴스 {len(news)}건은 수집됐으나 LLM 분석이 실패해 요약은 생략됨)")
+    return "\n".join(lines)
+
+
 def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None:
     """Get a 매수/HOLD/매도 call for one ticker.
 
     The action itself always comes from signal_engine.get_mechanical_action — deterministic,
-    no network call. On a HOLD day (the common case for a slow-moving trend-following system)
-    that's all we return: no news fetch, no LLM call, nothing that can rate-limit. Only on a
-    매수/매도 day do we fetch news (Exa) and ask the LLM for a narrative explanation — the LLM's
-    own parsed action is logged if it disagrees, but never overrides the mechanical one.
+    no network call — and is NEVER dropped due to a news/LLM failure: on a 매수/매도 day we
+    try to fetch news (Exa) and ask the LLM for a narrative explanation, but if either call
+    fails (rate limit, outage, etc.) we fall back to a rule-based explanation instead of
+    losing the recommendation entirely. The LLM's own parsed action is logged if it disagrees
+    with the mechanical one, but never overrides it.
 
     Returns None if the ticker has no data in Drive yet, or if that data is stale
     (see _is_data_fresh) — a stale-data recommendation would be misleading.
@@ -80,22 +103,31 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
             "date": str(summary["date"]),
         }
 
-    news = news_fetcher.fetch_ticker_news_exa(ticker)
-    news_fetcher.archive_news(drive_db, ticker, news)
-    reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
+    news: list[dict] = []
+    try:
+        news = news_fetcher.fetch_ticker_news_exa(ticker)
+        news_fetcher.archive_news(drive_db, ticker, news)
+    except Exception:
+        logger.exception("%s: news fetch failed, proceeding without it", ticker)
 
-    if reco["action"] != action:
-        logger.warning(
-            "%s: LLM action (%s) disagreed with mechanical rule (%s) — using the mechanical one",
-            ticker,
-            reco["action"],
-            action,
-        )
+    try:
+        reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
+        if reco["action"] != action:
+            logger.warning(
+                "%s: LLM action (%s) disagreed with mechanical rule (%s) — using the mechanical one",
+                ticker,
+                reco["action"],
+                action,
+            )
+        text = reco["text"]
+    except Exception:
+        logger.exception("%s: LLM call failed for a %s signal — falling back to rule-based explanation", ticker, action)
+        text = _build_rule_based_explanation(ticker, action, summary, news)
 
     return {
         "ticker": ticker,
         "action": action,
-        "text": reco["text"],
+        "text": text,
         "news": news,
         "close": summary["close"],
         "date": str(summary["date"]),

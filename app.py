@@ -75,9 +75,13 @@ def get_universe() -> dict:
     db = get_drive_db()
     universe = db.load_json(data_fetcher.UNIVERSE_FILENAME)
     if not universe:
-        return {"tickers": sorted(db.list_tickers()), "sectors": {}}
+        return {"tickers": sorted(db.list_tickers()), "sectors": {}, "descriptions": {}}
     tickers = sorted(universe.get("active_tickers") or db.list_tickers())
-    return {"tickers": tickers, "sectors": universe.get("sectors", {})}
+    return {
+        "tickers": tickers,
+        "sectors": universe.get("sectors", {}),
+        "descriptions": universe.get("descriptions", {}),
+    }
 
 
 @st.cache_data(ttl=3600, show_spinner="Drive에서 시세 불러오는 중...")
@@ -254,10 +258,11 @@ with tab_asset:
         st.info("자산군 카테고리 → 세부 종목 → 기간을 선택하고 '조회'를 눌러주세요.")
     else:
         active_asset_ticker = st.session_state.selected_asset_ticker
+        asset_info = data_fetcher.ASSET_CLASS_TICKERS[active_asset_ticker]
         render_ticker_chart(
             active_asset_ticker,
             st.session_state.selected_asset_period,
-            subtitle=data_fetcher.ASSET_CLASS_TICKERS[active_asset_ticker]["label"],
+            subtitle=f"{asset_info['label']} — {asset_info['description']}",
             key_prefix="asset",
         )
 
@@ -270,6 +275,7 @@ with tab_sp500:
     universe = get_universe()
     all_tickers = universe["tickers"]
     sector_map = universe["sectors"]
+    description_map = universe["descriptions"]
 
     if not all_tickers:
         st.warning("Drive에 저장된 종목이 없습니다. '데이터 적재' 탭에서 먼저 데이터를 적재해주세요.")
@@ -306,10 +312,11 @@ with tab_sp500:
             st.info("섹터 → 종목 → 기간을 선택하고 '조회'를 눌러주세요.")
         else:
             active_ticker = st.session_state.selected_sp500_ticker
+            subtitle = description_map.get(active_ticker) or sector_map.get(active_ticker, "")
             render_ticker_chart(
                 active_ticker,
                 st.session_state.selected_sp500_period,
-                subtitle=sector_map.get(active_ticker, ""),
+                subtitle=subtitle,
                 key_prefix="sp500",
             )
 
