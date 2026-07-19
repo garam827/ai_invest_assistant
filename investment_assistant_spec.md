@@ -37,13 +37,13 @@
 ### 1.2 데이터 흐름 (Data Flow)
 1. **매일 장 마감 후**: GitHub Actions `collect.yml`이 스케줄(평일 22:30 UTC)로 가동.
 2. **종목 유니버스 동기화**: 위키피디아의 현재 S&P 500 구성종목과 Drive 저장 목록을 비교(`sync_universe`). 신규 편입 종목은 5년치 백필 후 합류, 편출 종목은 데이터 보존하되 활성 목록에서 제외. 결과(활성/비활성 목록, 섹터, 종목 설명)를 `_universe.json`에 기록.
-3. **yfinance API 수집**: 활성 유니버스 전 종목 + 대표 자산군 10종(`ASSET_CLASS_TICKERS` — S&P 500/비트코인/금/미국 장·중기국채/원자재 4종)의 당일 OHLCV 데이터를 수집.
+3. **yfinance API 수집**: 활성 유니버스 전 종목 + 대표 자산군 10종(`ASSET_CLASS_TICKERS` — S&P 500 1종/비트코인 1종/금 1종/미국 장·중기국채 2종/원자재 5종)의 당일 OHLCV 데이터를 수집.
 4. **구글 드라이브 가상 DB 적재**: OAuth 사용자 인증(캐싱된 토큰)을 통해 지정 폴더 내 `[Ticker].parquet` 파일에 당일 데이터를 Append 및 중복 제거(Upsert).
 5. **`collect.yml` 성공 시 `recommend.yml`이 `workflow_run`으로 자동 연쇄 실행**. 대표 자산군 10종에 한해(S&P 500 개별 종목 제외):
    a. **신선도 게이트**: 종목별 마지막 저장일이 4일 이상 지났으면 그 종목은 건너뜀(부분 실패 대응).
    b. **시그널 엔진 작동 + 기계적 판정**: Donchian Channel/ATR을 계산해 `signal_engine.get_mechanical_action`으로 매수/HOLD/매도를 네트워크 호출 없이 결정론적으로 산출.
    c. **HOLD면 여기서 종료** (뉴스/LLM 호출 없음). **매수/매도면**: Exa API로 최근 뉴스를 수집하고 OpenRouter LLM(Nemotron)에 뉴스+시그널 상태를 근거로 서술형 설명을 요청 — 실패하면 규칙 기반 설명으로 자동 대체(판정 자체는 항상 확정됨).
-   d. **텔레그램 발송**: 10종목 전체 요약(액션+종가+설명) 텍스트 1건 + 매수/매도 종목마다 최근 6개월 캔들차트 이미지.
+   d. **텔레그램 발송**: 10종목 전체를 티커/구분/액션/종가 표로 정리한 요약 텍스트 1건(v2.9, 등폭 코드블록) + 매수/매도 종목마다 최근 6개월 캔들차트 이미지.
 6. **사용자 UI**: Streamlit 대시보드에서 대표 자산군/S&P 500 개별 종목을 언제든 대화형으로 조회·분석(크론과 별개, 텔레그램 미발송).
 
 ---
@@ -58,7 +58,7 @@
 - **종목 유니버스 동기화 (S&P 500 편입/편출 대응)**: 일별 업데이트 실행 전 `sync_universe`가 위키피디아 최신 구성종목과 Drive 저장 목록을 diff한다.
   - *신규 편입*: Drive에 파일이 없는 종목은 `run_initial_ingestion`으로 5년치를 먼저 백필한 뒤 활성 목록에 포함 (Donchian 100일/ATR 계산에 필요한 히스토리 확보 목적).
   - *편출*: 더 이상 S&P 500이 아닌 종목은 **Parquet 파일을 삭제하지 않고 보존**(과거 데이터 리서치 가치)하되, 활성 목록에서 제외하여 이후 일별 업데이트와 시그널 스캔 대상에서 빠지게 한다.
-  - 결과는 Drive 폴더 내 `_universe.json`(`active_tickers`, `inactive_tickers`, `sectors`, `synced_at`)에 기록되며, 이후 모든 일별 업데이트/시그널 대시보드는 `list_tickers()`가 아니라 이 `active_tickers`를 종목 유니버스의 기준으로 삼는다. `sectors`는 위키피디아 테이블의 GICS Sector 컬럼을 함께 수집한 종목→섹터 매핑으로, Streamlit 종목 차트 페이지의 섹터 필터에 쓰인다.
+  - 결과는 Drive 폴더 내 `_universe.json`(`active_tickers`, `inactive_tickers`, `sectors`, `descriptions`, `synced_at`)에 기록되며, 이후 모든 일별 업데이트/시그널 대시보드는 `list_tickers()`가 아니라 이 `active_tickers`를 종목 유니버스의 기준으로 삼는다. `sectors`는 위키피디아 테이블의 GICS Sector 컬럼을 함께 수집한 종목→섹터 매핑으로, Streamlit 종목 차트 페이지의 섹터 필터에 쓰인다. `descriptions`는 아래 자산군 설명 항목 참고.
 - **대표 자산군 ETF/현물 수집 (S&P 500 개별 종목 외 자산군 확장)**: S&P 500 지수, 비트코인, 금, 미국 국채, 원자재는 원지수·현물을 직접 거래할 수 없거나(또는 거래량 데이터가 부실하거나) yfinance에서 안정적으로 조회하기 어려운 경우가 있어, 유동성이 높고 거래량 데이터가 확실한 **ETF(또는 BTC-USD 현물) 프록시**로 대신 추적한다.
   | 카테고리 | 자산 | 티커 |
   | --- | --- | --- |
@@ -123,7 +123,7 @@
 - **분석에 사용된 뉴스 카드**: 추천 아래에 근거로 쓰인 뉴스 기사를 카드(제목·링크, 발행처·발행시각, 요약)로 나열. 같은 뉴스는 Drive에도 날짜별로 아카이브됨([기능 1]/[기능 3] 참고).
 - HTS(홈트레이딩시스템) 스타일: 차트 테두리, 우측 세로 범례, 마우스 오버 시 크로스헤어형 통합 툴팁(`hovermode="x unified"`), 서브플롯 간 여백 확대.
 
-**탭 4: 데이터 적재 (구현 완료, 원래 메인 페이지 위치에서 이동)** — 버튼 하나(`전체 데이터 적재`)로 `run_full_collection`(S&P 500 유니버스 동기화 + 전 종목 갱신 + 자산군 ETF 갱신)을 실행. 원래 스펙(1.1)의 Cloud Scheduler 자동 트리거를 결제 계정 연결 전까지 대체하는 수동 실행 경로. 실행 중 로그를 화면에 실시간 스트리밍하고, 완료 시 활성/신규편입/편출/자산군 종목 수를 요약 표시. 완료 후 종목 목록·시세 캐시를 즉시 비워, 같은 세션에서 바로 다른 탭으로 이동해도 새 데이터가 반영됨.
+**탭 4: 데이터 적재 (구현 완료, 원래 메인 페이지 위치에서 이동)** — 버튼 하나(`전체 데이터 적재`)로 `run_full_collection`(S&P 500 유니버스 동기화 + 전 종목 갱신 + 자산군 ETF 갱신)을 실행. v2.8부터는 GitHub Actions `collect.yml`이 매일 자동으로 동일 로직을 실행하므로, 이 버튼은 크론과 별개로 원할 때 즉시 갱신하고 싶을 때 쓰는 수동 실행 경로다. 실행 중 로그를 화면에 실시간 스트리밍하고, 완료 시 활성/신규편입/편출/자산군 종목 수를 요약 표시. 완료 후 종목 목록·시세 캐시를 즉시 비워, 같은 세션에서 바로 다른 탭으로 이동해도 새 데이터가 반영됨.
 
 **미구현**:
 - **오늘의 시그널 전체 스캔 테이블**: `signal_engine.scan_for_signals`로 전 종목을 한 번에 스캔해 돌파+거래량 급증 종목을 우선순위로 보여주는 테이블 뷰.
@@ -135,12 +135,13 @@
 - **워크플로 2개, `workflow_run`으로 연쇄**:
   - `.github/workflows/collect.yml`: 평일 22:30 UTC 스케줄(`cron: "30 22 * * 1-5"`) + `workflow_dispatch`(수동 실행)로 가동. `python data_fetcher.py update` 한 줄로 `sync_universe`+전 종목 갱신+자산군 ETF 갱신을 모두 수행.
   - `.github/workflows/recommend.yml`: `collect.yml`이 **성공적으로 완료됐을 때만**(`workflow_run` + `if: github.event.workflow_run.conclusion == 'success'`) 자동 연쇄 실행되거나, `workflow_dispatch`로 수동 실행 가능. `python recommendation_engine.py`로 대표 자산군 10종의 추천을 생성하고 텔레그램으로 발송.
-  - 두 워크플로 모두 GitHub 저장소 Secrets에 등록된 8개 값을 환경변수로 주입: `GOOGLE_OAUTH_CLIENT_SECRET_JSON`, `GOOGLE_OAUTH_TOKEN_JSON`, `DRIVE_FOLDER_ID`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL_NAME`, `EXA_API_KEY`, 그리고 `recommend.yml`에만 추가로 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+  - 두 워크플로 공통으로 GitHub 저장소 Secrets 6개(`GOOGLE_OAUTH_CLIENT_SECRET_JSON`, `GOOGLE_OAUTH_TOKEN_JSON`, `DRIVE_FOLDER_ID`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL_NAME`, `EXA_API_KEY`)를 환경변수로 주입하며, `recommend.yml`은 텔레그램 발송을 위해 `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` 2개를 추가로 주입해 총 8개를 쓴다(`collect.yml`은 6개만).
 - **데이터 신선도 게이트 (`recommendation_engine._is_data_fresh`)**: `collect.yml`이 전체적으로는 성공(exit 0)해도, `data_fetcher`의 종목별 `try/except`로 인해 일부 종목만 조용히 실패했을 수 있다. 종목별 마지막 저장일이 오늘 기준 `config.DATA_FRESHNESS_MAX_AGE_DAYS`(기본 4일)를 넘으면 그 종목은 추천 생성을 건너뛰어, 오래된 데이터로 잘못된 매수/매도 판정을 내리는 것을 방지한다.
 - **매수/HOLD/매도 판정의 기계화 (`signal_engine.get_mechanical_action`)**: 판정은 항상 Donchian 돌파/트레일링 스탑 이탈 여부만으로 네트워크 호출 없이 결정론적으로 나온다 — LLM이나 뉴스 API 상태와 무관하게 항상 확정된다.
   - **HOLD인 날은 뉴스 수집·LLM 호출을 아예 생략**한다 (하루 대부분은 HOLD이므로 API 사용량이 크게 준다).
   - **매수/매도인 날**: Exa로 뉴스를 수집하고 OpenRouter LLM에 뉴스+시그널 상태로 서술형 설명을 요청한다. LLM이 반환한 액션이 기계적 판정과 다르면 로그만 남기고 **기계적 판정을 그대로 사용**한다(액션은 LLM이 바꿀 수 없음).
   - **LLM/뉴스 호출이 실패해도** (실제 OpenRouter 무료 모델 429 상황으로 검증됨) 판정 자체는 절대 유실되지 않는다 — `_build_rule_based_explanation`이 "어떤 숫자 규칙이 발동했는지"를 명시한 결정론적 설명 텍스트로 자동 대체한다.
+  - 그날의 전체 판정 결과는 Drive에 `_recommendations_{YYYY-MM-DD}.json`으로도 저장된다(`run_asset_class_recommendations`) — 텔레그램 발송이 실패하더라도 판정 이력 자체는 남는다.
 - **텔레그램 알림 (`telegram_notifier.py`, 설정은 [TELEGRAM_SETUP.md](TELEGRAM_SETUP.md))**: `recommendation_engine.run_asset_class_recommendations`가 크론 경로에서만 호출하며, Streamlit의 개별 조회(`get_recommendation_for_ticker`)에서는 절대 호출하지 않는다(그렇지 않으면 사용자가 차트를 조회할 때마다 알림이 스팸처럼 발송됨).
   - **요약 텍스트**: 매일 10종목 전체를 **표 형태**로 정리해 하나의 메시지로 발송. Telegram Bot API는 어떤 parse_mode(`MarkdownV2`/`HTML`/레거시 `Markdown`)에서도 GFM 테이블이나 `<table>`을 렌더링하지 않으므로, 등폭 서체 코드블록(`` ``` ``) 안에 티커/구분(카테고리)/액션/종가 4열을 정렬해 표처럼 보이게 만든다(`format_summary`). 한글(매수/매도)·영문(HOLD)이 섞여도 정렬이 어긋나지 않도록 `unicodedata.east_asian_width`로 전각 문자를 2칸으로 계산(`_display_width`/`_pad`) — 이모지는 클라이언트별 표시 폭이 달라 표 안에 넣으면 정렬이 깨지므로 표 밖 범례 한 줄(🟢 매수 ⚪ HOLD 🔴 매도)로만 사용.
   - **차트 이미지**: 매수/매도 종목에 한해서만(HOLD 제외, 메시지 수 절약) `chart_builder.build_ticker_chart_figure`로 만든 Plotly 캔들차트를 kaleido로 PNG 렌더링해 첨부. 캡션에 액션과 종목 설명 포함.
