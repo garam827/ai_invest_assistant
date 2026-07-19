@@ -5,6 +5,8 @@ Tab 2 — 대표 자산군 분석: 톰 바소 추세추종 시스템을 data_fet
 채권/원자재 카테고리, ETF 또는 현물 프록시)에 적용.
 Tab 3 — 종목 차트 (S&P 500): 개별 종목 차트.
 Tab 4 — 데이터 적재: S&P 500 유니버스 동기화 + 전 종목/자산군 시세 갱신을 한 번에 실행.
+Tab 5 — 리포트 히스토리: 크론이 report_builder로 만들어 Drive에 저장한 날짜별 일일 리포트(전 종목
+차트 + LLM 종합 해설)를 그대로 다시 렌더링.
 
 두 차트 탭(2, 3) 모두 같은 render_ticker_chart를 공유한다: 캔들+지표 오버레이,
 과거 매수/청산 시그널 발생일 마커, 그리고 뉴스+시그널 상태 기반 LLM 매매 추천.
@@ -19,6 +21,7 @@ import streamlit as st
 import chart_builder
 import data_fetcher
 import recommendation_engine
+import report_builder
 import signal_engine
 from drive_db import DriveDB
 
@@ -97,6 +100,17 @@ def get_recommendation(ticker: str, latest_date: str) -> dict:
     UI share the exact same logic.
     """
     return recommendation_engine.get_recommendation_for_ticker(get_drive_db(), ticker)
+
+
+@st.cache_data(ttl=3600, show_spinner="리포트 목록 불러오는 중...")
+def get_report_dates() -> list[str]:
+    return report_builder.list_report_dates(get_drive_db())
+
+
+@st.cache_data(ttl=86400, show_spinner="리포트 불러오는 중...")
+def get_report_html(date: str) -> str | None:
+    """Cached by date, not TTL alone — a past date's report never changes once published."""
+    return report_builder.load_report(get_drive_db(), date)
 
 
 class _StreamlitLogHandler(logging.Handler):
@@ -178,8 +192,8 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
         st.error(f"LLM 분석 실패: {e}")
 
 
-tab_intro, tab_asset, tab_sp500, tab_collect = st.tabs(
-    ["소개", "대표 자산군 분석", "종목 차트 (S&P 500)", "데이터 적재"]
+tab_intro, tab_asset, tab_sp500, tab_collect, tab_report = st.tabs(
+    ["소개", "대표 자산군 분석", "종목 차트 (S&P 500)", "데이터 적재", "리포트 히스토리"]
 )
 
 # ---------------------------------------------------------------------------
@@ -356,3 +370,23 @@ with tab_collect:
         finally:
             root_logger.removeHandler(handler)
             root_logger.setLevel(previous_level)
+
+# ---------------------------------------------------------------------------
+# 탭 4: 리포트 히스토리 — 크론(recommend.yml)이 report_builder로 만들어 Drive에 저장한
+# 날짜별 일일 리포트(전 종목 표 + LLM 종합 해설 + 차트)를 재계산 없이 그대로 다시 렌더링.
+# 텔레그램에 발송되는 GitHub Pages 링크와 동일한 내용을 앱 안에서도 볼 수 있게 하는 용도.
+# ---------------------------------------------------------------------------
+with tab_report:
+    st.header("일일 리포트 히스토리")
+
+    report_dates = get_report_dates()
+    if not report_dates:
+        st.info("아직 저장된 리포트가 없습니다. 크론(recommend.yml)이 최소 한 번 실행된 뒤 표시됩니다.")
+    else:
+        selected_date = st.selectbox("날짜 선택", report_dates, key="report_date_select")
+        report_html = get_report_html(selected_date)
+        if report_html is None:
+            st.warning(f"{selected_date} 리포트를 불러오지 못했습니다.")
+        else:
+            # 넉넉하게: 자산군 10종목 차트(각 ~950px)까지 스크롤 없이 최대한 담기게 함.
+            st.iframe(report_html, height=9500)

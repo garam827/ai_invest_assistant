@@ -25,6 +25,7 @@ import config
 import data_fetcher
 import news_fetcher
 import openrouter_briefing
+import report_builder
 import signal_engine
 import telegram_notifier
 from drive_db import DriveDB
@@ -163,9 +164,22 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         # per-ticker work already done — the caller still gets the in-memory results.
         logger.exception("Failed to persist recommendations to Drive (results still returned)")
 
+    report_url = None
+    if results:
+        try:
+            report_html = report_builder.build_daily_report_html(drive_db, results)
+            report_builder.save_report(drive_db, date, report_html)
+            report_url = f"{config.REPORT_BASE_URL}/{date}.html"
+            logger.info("Saved daily report for %s", date)
+        except Exception:
+            # A failed report build must never take down the recommendation batch or the
+            # Telegram summary — same "never drop what already succeeded" principle as the
+            # per-ticker LLM/news fallback above.
+            logger.exception("Failed to build/save the daily report (results still returned)")
+
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
         try:
-            telegram_notifier.notify_recommendations(drive_db, results)
+            telegram_notifier.notify_recommendations(results, report_url=report_url)
         except Exception:
             logger.exception("Failed to send Telegram notifications (results still returned)")
     else:

@@ -33,6 +33,14 @@ RECOMMENDATION_SYSTEM_PROMPT = (
 
 _RECOMMENDATION_PATTERN = re.compile(r"추천\s*[:：]\s*(매수|HOLD|매도)")
 
+PORTFOLIO_OVERVIEW_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 오늘 대표 자산군 10종목의 기계적 추세추종 판정 결과다. 각 종목의 매수/HOLD/매도 판정은 "
+    "이미 규칙에 따라 확정된 사실이며, 너는 이 판정을 절대 바꾸거나 재해석하지 않는다. 다만 여러 "
+    "자산군에 걸쳐 동시에 나타나는 추세를 감정 없이 담담하게 한 문단으로 종합 해설하라 — 예를 들어 "
+    "여러 원자재가 동시에 매도 시그널을 보이면 그 사실만 담백하게 짚고, 향후 전망이나 예측은 덧붙이지 마라."
+)
+
 
 def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
     if not news_items:
@@ -108,3 +116,15 @@ def generate_recommendation(ticker: str, news_items: list[dict], signal_summary:
     match = _RECOMMENDATION_PATTERN.search(text)
     action = match.group(1) if match else "HOLD"
     return {"action": action, "text": text}
+
+
+def generate_portfolio_overview(results: dict) -> str:
+    """One-paragraph cross-asset synthesis across the day's ASSET_CLASS_TICKERS results
+    (report_builder.build_daily_report_html's LLM overview section). Commentary only —
+    never changes any individual ticker's mechanical action.
+    """
+    lines = ["[오늘의 자산군별 판정]"]
+    for ticker, reco in results.items():
+        lines.append(f"- {ticker}: {reco['action']} (종가 {reco['close']:.2f})")
+    prompt = "\n".join(lines) + "\n\n위 10개 자산군의 판정을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
+    return _call_chat(PORTFOLIO_OVERVIEW_SYSTEM_PROMPT, prompt)

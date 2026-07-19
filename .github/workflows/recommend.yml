@@ -15,6 +15,8 @@ jobs:
   recommend:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to commit+push the generated docs/reports/ page for GitHub Pages
     env:
       GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
       GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
@@ -33,11 +35,21 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # kaleido renders chart PNGs (for Telegram) with a headless Chromium that has no CJK
-      # font on a bare Ubuntu runner — without this, Korean text in the chart silently drops
-      # to blank/tofu glyphs. Not needed for the Streamlit UI (browser uses its own fonts).
-      - name: Install Korean font for chart image rendering
-        run: sudo apt-get update && sudo apt-get install -y fonts-nanum
-
       - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
         run: python recommendation_engine.py
+
+      # report_builder.py writes the day's combined report to docs/reports/{date}.html as a
+      # side effect of the step above; commit+push it so GitHub Pages (serving the docs/
+      # folder) publishes it at the URL telegram_notifier's message links to. A no-op (no
+      # commit) if there were no results (e.g. every ticker was skipped for stale data).
+      - name: Publish daily report to GitHub Pages
+        run: |
+          if [ ! -d docs/reports ]; then
+            echo "No report generated (empty results), nothing to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/reports
+          git diff --cached --quiet || git commit -m "Add daily report $(date -u +%Y-%m-%d)"
+          git push

@@ -1,13 +1,10 @@
 """Builds the shared candlestick+indicator Plotly figure.
 
 Streamlit-independent (unlike app.py's render_ticker_chart, which also handles metrics,
-layout, and the LLM recommendation section) so the exact same chart can be rendered both
-in the Streamlit UI (browser renders the Korean text with the viewer's own fonts, so this
-doesn't matter there) and as a static PNG for Telegram (via kaleido, see telegram_notifier.py
-— kaleido renders headlessly with Chromium, and a bare Ubuntu CI runner has no CJK font
-installed by default, so Korean text silently drops to tofu/blank glyphs unless (a) a CJK
-font is installed on the runner — see .github/workflows/recommend.yml — and (b) the figure
-explicitly requests a font family that includes one, which is what FONT_FAMILY below is for).
+layout, and the LLM recommendation section) so the exact same chart can be embedded both
+in the Streamlit UI and in report_builder.py's daily HTML report (fig.to_html(), rendered
+client-side as interactive JS/SVG in whichever browser opens it — no server-side/headless
+rendering involved, so there's no CJK font installation step needed anywhere in the pipeline).
 """
 from __future__ import annotations
 
@@ -15,9 +12,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Requested in priority order; Chromium/kaleido and browsers both fall back to the next
-# family (or their own default) if an earlier one isn't installed, so listing Windows/macOS
-# names here doesn't break other environments — it's just a wishlist.
+# Explicit CJK-first font stack so Korean labels/legend render consistently across whatever
+# font the viewer's OS/browser defaults to, in priority order with a generic sans-serif
+# fallback last.
 FONT_FAMILY = "Nanum Gothic, Malgun Gothic, Noto Sans CJK KR, Apple SD Gothic Neo, sans-serif"
 
 

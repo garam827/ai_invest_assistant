@@ -62,3 +62,8 @@ DATA_FRESHNESS_MAX_AGE_DAYS = int(os.environ.get("DATA_FRESHNESS_MAX_AGE_DAYS", 
 # interactive Streamlit UI). Bot token from @BotFather; chat_id from e.g. api.telegram.org/bot<token>/getUpdates.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+# Public GitHub Pages base URL where report_builder's daily HTML report is published
+# (recommend.yml commits docs/reports/{date}.html, GitHub Pages serves the docs/ folder).
+# telegram_notifier links here instead of attaching every ticker's chart individually.
+REPORT_BASE_URL = os.environ.get("REPORT_BASE_URL", "https://garam827.github.io/ai_invest_assistant/reports")

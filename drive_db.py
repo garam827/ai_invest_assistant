@@ -137,6 +137,32 @@ class DriveDB:
         """Overwrite (or create) a small JSON metadata file."""
         self._upload(filename, json.dumps(data, indent=2).encode("utf-8"), "application/json")
 
+    def load_text(self, filename: str) -> str | None:
+        """Download a plain-text/HTML file (e.g. a daily report page). None if missing."""
+        raw = self._download(filename)
+        return raw.decode("utf-8") if raw is not None else None
+
+    def save_text(self, filename: str, text: str, mimetype: str = "text/html") -> None:
+        """Overwrite (or create) a plain-text/HTML file."""
+        self._upload(filename, text.encode("utf-8"), mimetype)
+
+    def list_filenames(self, prefix: str) -> list[str]:
+        """List filenames in the Drive folder starting with `prefix` (e.g. '_report_')."""
+        filenames: list[str] = []
+        page_token = None
+        query = f"'{self.folder_id}' in parents and trashed = false and name contains '{prefix}'"
+        while True:
+            response = (
+                self.service.files()
+                .list(q=query, spaces="drive", fields="nextPageToken, files(name)", pageToken=page_token)
+                .execute()
+            )
+            filenames.extend(f["name"] for f in response.get("files", []) if f["name"].startswith(prefix))
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                break
+        return sorted(filenames)
+
     def upsert_ticker(self, ticker: str, new_df: pd.DataFrame) -> pd.DataFrame:
         """Merge new rows into the existing file, drop duplicate dates (keep newest), save, return merged df."""
         existing_df = self.load_ticker(ticker)
