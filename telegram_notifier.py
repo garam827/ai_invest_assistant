@@ -7,6 +7,7 @@ every "조회" click in the app would spam the chat.
 from __future__ import annotations
 
 import logging
+import unicodedata
 
 import requests
 
@@ -51,16 +52,45 @@ def send_photo(image_bytes: bytes, caption: str = "") -> None:
     response.raise_for_status()
 
 
+def _display_width(text: str) -> int:
+    """Monospace 표 정렬을 위한 시각적 폭 — 한글 등 동아시아 전각 문자는 2칸으로 계산한다
+    (파이썬 len()은 이런 문자도 1로 세어, 영문/한글이 섞인 열은 그대로 두면 정렬이 깨진다)."""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+
+
+def _pad(text: str, width: int) -> str:
+    return text + " " * max(0, width - _display_width(text))
+
+
 def format_summary(results: dict) -> str:
+    """Telegram 봇 메시지는 HTML <table>을 지원하지 않으므로, 마크다운 코드블록(등폭 서체)
+    안에 컬럼을 정렬해 표처럼 보이게 만든다. 이모지는 클라이언트마다 표시 폭이 달라 표 안에
+    섞으면 정렬이 어긋날 수 있어 상단 범례로만 쓰고, 행 안의 액션은 순수 텍스트로 둔다.
+    """
     date = next(iter(results.values()))["date"] if results else ""
-    lines = [f"*톰 바소 추세추종 일일 리포트* ({date})", ""]
+
+    headers = ["티커", "구분", "액션", "종가"]
+    rows = []
     for ticker, reco in results.items():
-        emoji = ACTION_EMOJI.get(reco["action"], "⚪")
-        description = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("description", "")
-        lines.append(f"{emoji} `{ticker}` — *{reco['action']}*  (종가 {reco['close']:.2f})")
-        if description:
-            lines.append(f"_{description}_")
-    return "\n".join(lines)
+        category = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("category", "")
+        rows.append([ticker, category, reco["action"], f"{reco['close']:.2f}"])
+
+    col_widths = [
+        max([_display_width(headers[i])] + [_display_width(row[i]) for row in rows]) for i in range(len(headers))
+    ]
+
+    def _format_row(cells: list[str]) -> str:
+        return "  ".join(_pad(cell, col_widths[i]) for i, cell in enumerate(cells))
+
+    table_lines = [_format_row(headers), "  ".join("-" * w for w in col_widths)]
+    table_lines.extend(_format_row(row) for row in rows)
+
+    legend = "  ".join(f"{emoji} {action}" for action, emoji in ACTION_EMOJI.items())
+    return (
+        f"*톰 바소 추세추종 일일 리포트* ({date})\n"
+        f"{legend}\n"
+        "```\n" + "\n".join(table_lines) + "\n```"
+    )
 
 
 def notify_recommendations(drive_db: DriveDB, results: dict) -> None:
