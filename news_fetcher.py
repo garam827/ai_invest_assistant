@@ -1,53 +1,21 @@
 """News collection for tickers analyzed by the LLM recommendation flow.
 
-Two sources, same output shape (list of {title, summary, publisher, link, published_at}):
-- fetch_ticker_news: yfinance's built-in news feed (Ticker.news).
-- fetch_ticker_news_exa: Exa's neural search API (https://exa.ai), scoped to news sites —
-  this is what app.py's recommendation flow actually calls.
+fetch_ticker_news_exa (Exa's neural search API, https://exa.ai, scoped to news sites) is the
+only source — output shape: list of {title, summary, publisher, link, published_at}. An
+earlier yfinance-based fetcher was fully replaced by this (see spec changelog v2.7) and has
+been removed rather than kept as an unused parallel implementation.
 """
 from __future__ import annotations
 
 import datetime
-import logging
 from urllib.parse import urlparse
 
 import requests
-import yfinance as yf
 
 import config
 
-logger = logging.getLogger(__name__)
-
 NEWS_ARCHIVE_PREFIX = "_news_"
 EXA_SEARCH_URL = "https://api.exa.ai/search"
-
-
-def fetch_ticker_news(ticker: str, max_items: int = config.NEWS_MAX_ITEMS_PER_TICKER) -> list[dict]:
-    """Fetch recent text-article headlines/summaries for a ticker (video items are skipped)."""
-    raw_news = yf.Ticker(ticker).news or []
-
-    items = []
-    for entry in raw_news:
-        content = entry.get("content", {})
-        if content.get("contentType") != "STORY":
-            continue
-        title = content.get("title")
-        if not title:
-            continue
-
-        items.append(
-            {
-                "title": title,
-                "summary": content.get("summary", ""),
-                "publisher": (content.get("provider") or {}).get("displayName", ""),
-                "link": (content.get("canonicalUrl") or {}).get("url", ""),
-                "published_at": content.get("pubDate"),
-            }
-        )
-        if len(items) >= max_items:
-            break
-
-    return items
 
 
 def fetch_ticker_news_exa(
@@ -95,18 +63,6 @@ def fetch_ticker_news_exa(
             }
         )
     return items
-
-
-def fetch_news_for_tickers(tickers: list[str]) -> dict[str, list[dict]]:
-    """Fetch news for each ticker in a signal list. Missing/failed lookups map to an empty list."""
-    news_by_ticker: dict[str, list[dict]] = {}
-    for ticker in tickers:
-        try:
-            news_by_ticker[ticker] = fetch_ticker_news(ticker)
-        except Exception:
-            logger.exception("Failed to fetch news for %s", ticker)
-            news_by_ticker[ticker] = []
-    return news_by_ticker
 
 
 def archive_news(drive_db, ticker: str, news_items: list[dict], date: str | None = None) -> list[dict]:

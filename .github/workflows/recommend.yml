@@ -33,5 +33,11 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # kaleido renders chart PNGs (for Telegram) with a headless Chromium that has no CJK
+      # font on a bare Ubuntu runner — without this, Korean text in the chart silently drops
+      # to blank/tofu glyphs. Not needed for the Streamlit UI (browser uses its own fonts).
+      - name: Install Korean font for chart image rendering
+        run: sudo apt-get update && sudo apt-get install -y fonts-nanum
+
       - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
         run: python recommendation_engine.py

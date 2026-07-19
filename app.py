@@ -126,9 +126,7 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
 
     # Donchian(100일)/ATR은 룩백이 필요하므로 전체 히스토리로 지표를 계산한 뒤, 화면 표시 구간만 잘라낸다.
     signals = signal_engine.compute_signals(raw_df)
-
-    period_days = PERIOD_OPTIONS[period_label]
-    view = signals if period_days is None else signals[signals["Date"] >= signals["Date"].max() - pd.Timedelta(days=period_days)]
+    view = chart_builder.slice_to_period(signals, PERIOD_OPTIONS[period_label])
 
     latest = signals.iloc[-1]
     prev_close = signals.iloc[-2]["Close"] if len(signals) > 1 else latest["Close"]

@@ -2,7 +2,12 @@
 
 Streamlit-independent (unlike app.py's render_ticker_chart, which also handles metrics,
 layout, and the LLM recommendation section) so the exact same chart can be rendered both
-in the Streamlit UI and as a static PNG for Telegram (via kaleido, see telegram_notifier.py).
+in the Streamlit UI (browser renders the Korean text with the viewer's own fonts, so this
+doesn't matter there) and as a static PNG for Telegram (via kaleido, see telegram_notifier.py
+— kaleido renders headlessly with Chromium, and a bare Ubuntu CI runner has no CJK font
+installed by default, so Korean text silently drops to tofu/blank glyphs unless (a) a CJK
+font is installed on the runner — see .github/workflows/recommend.yml — and (b) the figure
+explicitly requests a font family that includes one, which is what FONT_FAMILY below is for).
 """
 from __future__ import annotations
 
@@ -10,11 +15,26 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Requested in priority order; Chromium/kaleido and browsers both fall back to the next
+# family (or their own default) if an earlier one isn't installed, so listing Windows/macOS
+# names here doesn't break other environments — it's just a wishlist.
+FONT_FAMILY = "Nanum Gothic, Malgun Gothic, Noto Sans CJK KR, Apple SD Gothic Neo, sans-serif"
+
+
+def slice_to_period(signals: pd.DataFrame, days: int | None) -> pd.DataFrame:
+    """Slice an already-computed signal_engine.compute_signals() DataFrame to the most
+    recent `days` calendar days for display (`days=None` returns it unsliced). Callers
+    compute_signals() on the *full* history first — Donchian-100/ATR need that lookback so
+    the left edge of the displayed window isn't distorted — and slice only for the chart.
+    """
+    if days is None:
+        return signals
+    return signals[signals["Date"] >= signals["Date"].max() - pd.Timedelta(days=days)]
+
 
 def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
     """`view` must already have signal_engine.compute_signals()'s columns, sliced to the
-    desired display period (Donchian/ATR are computed on full history beforehand so the
-    slice itself doesn't distort the indicators — see callers)."""
+    desired display period — use slice_to_period() to build it correctly."""
     fig = make_subplots(
         rows=3,
         cols=1,
@@ -121,6 +141,7 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         template="plotly_white",
+        font=dict(family=FONT_FAMILY),
         legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, bgcolor="rgba(0,0,0,0)"),
         margin=dict(t=60, b=20, r=160, l=40),
     )

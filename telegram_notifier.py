@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 ACTION_EMOJI = {"매수": "🟢", "HOLD": "⚪", "매도": "🔴"}
+CHART_PERIOD_DAYS = 180  # 6개월 — 전체 히스토리(수년치)를 다 넣으면 이미지 한 장에서 캔들이 안 보일 정도로 눌려버림
 
 
 def _require_config() -> None:
@@ -79,7 +80,8 @@ def notify_recommendations(drive_db: DriveDB, results: dict) -> None:
     for ticker in signal_tickers:
         try:
             raw_df = drive_db.load_ticker(ticker)
-            view = signal_engine.compute_signals(raw_df)
+            signals = signal_engine.compute_signals(raw_df)
+            view = chart_builder.slice_to_period(signals, CHART_PERIOD_DAYS)
             fig = chart_builder.build_ticker_chart_figure(ticker, view)
             image_bytes = fig.to_image(format="png", width=1400, height=1000, scale=2)
             description = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("description", "")

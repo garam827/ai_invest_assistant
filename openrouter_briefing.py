@@ -7,14 +7,11 @@ Two things this module does:
 """
 from __future__ import annotations
 
-import logging
 import re
 
 import requests
 
 import config
-
-logger = logging.getLogger(__name__)
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -85,18 +82,6 @@ def generate_briefing(ticker: str, news_items: list[dict]) -> str:
     if not news_items:
         prompt += " 뉴스가 없다는 사실 자체를 근거로 평온한 브리핑을 작성하라."
     return _call_chat(SYSTEM_PROMPT, prompt)
-
-
-def generate_briefings(news_by_ticker: dict[str, list[dict]]) -> dict[str, str]:
-    """Batch version: ticker -> briefing text, for every ticker that fired a signal today."""
-    briefings: dict[str, str] = {}
-    for ticker, news_items in news_by_ticker.items():
-        try:
-            briefings[ticker] = generate_briefing(ticker, news_items)
-        except Exception:
-            logger.exception("Failed to generate briefing for %s", ticker)
-            briefings[ticker] = "브리핑 생성에 실패했습니다."
-    return briefings
 
 
 def generate_recommendation(ticker: str, news_items: list[dict], signal_summary: dict) -> dict:
