@@ -106,7 +106,11 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
 
     news: list[dict] = []
     try:
-        news = news_fetcher.fetch_ticker_news_exa(ticker)
+        # ASSET_CLASS_TICKERS' proxies (e.g. GLD for gold) search under the underlying
+        # asset's name via news_query instead of the ticker itself — "GLD stock news"
+        # mostly surfaces "GLD down X%" wire blurbs, not the macro drivers behind the move.
+        news_query = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("news_query")
+        news = news_fetcher.fetch_ticker_news_exa(ticker, query=news_query)
         news_fetcher.archive_news(drive_db, ticker, news)
     except Exception:
         logger.exception("%s: news fetch failed, proceeding without it", ticker)

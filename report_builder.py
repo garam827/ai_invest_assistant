@@ -29,7 +29,7 @@ ACTION_CLASS = {"매수": "buy", "HOLD": "hold", "매도": "sell"}
 
 STYLE = """
   * { box-sizing: border-box; }
-  body { font-family: "Malgun Gothic", "Nanum Gothic", "Noto Sans CJK KR", sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; color: #212121; line-height: 1.5; }
+  body { font-family: "Malgun Gothic", "Nanum Gothic", "Noto Sans CJK KR", sans-serif; max-width: 1400px; width: 94%; margin: 2rem auto; color: #212121; line-height: 1.5; }
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.4rem; }
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
@@ -50,7 +50,8 @@ STYLE = """
   details > summary { cursor: pointer; font-weight: bold; padding: 0.5rem 0.8rem; background: #f0f0f0; border-radius: 6px; }
   details[open] > summary { border-radius: 6px 6px 0 0; }
   .news-list h4 { margin-bottom: 0.5rem; }
-  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 0.6rem; }
+  .news-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.8rem; }
+  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.6rem 0.9rem; }
   .news-card a { font-weight: bold; color: #1a237e; text-decoration: none; }
   .news-card a:hover { text-decoration: underline; }
   .news-meta { color: #888; font-size: 0.85rem; margin: 0.2rem 0; }
@@ -112,7 +113,7 @@ def _build_news_cards_html(news_items: list[dict]) -> str:
             + (f"<p>{summary}</p>" if summary else "")
             + "</div>"
         )
-    return f"<div class='news-list'><h4>참고 뉴스 ({len(news_items)}건)</h4>{''.join(cards)}</div>"
+    return f"<div class='news-list'><h4>참고 뉴스 ({len(news_items)}건)</h4><div class='news-cards-grid'>{''.join(cards)}</div></div>"
 
 
 def _build_signal_sections_html(drive_db, results: dict, chart_js_loaded: list[bool]) -> str:
