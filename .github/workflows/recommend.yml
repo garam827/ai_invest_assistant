@@ -9,7 +9,12 @@ on:
   workflow_run:
     workflows: ["Daily data collection"]
     types: [completed]
-  workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
+  workflow_dispatch: # allows manual "Run workflow" from the Actions tab for testing
+    inputs:
+      skip_llm_and_news:
+        description: "Exa 뉴스/OpenRouter LLM 호출 생략(규칙 기반 설명으로 대체) — 파이프라인/리포트/텔레그램 배관만 확인할 때 API 사용량 절약"
+        type: boolean
+        default: true
 
 jobs:
   recommend:
@@ -26,6 +31,7 @@ jobs:
       EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SKIP_LLM_AND_NEWS: ${{ github.event.inputs.skip_llm_and_news }}
     steps:
       - uses: actions/checkout@v4
 

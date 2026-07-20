@@ -63,6 +63,12 @@ DATA_FRESHNESS_MAX_AGE_DAYS = int(os.environ.get("DATA_FRESHNESS_MAX_AGE_DAYS", 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# Manual-test escape hatch (recommend.yml's workflow_dispatch input): skip the Exa news +
+# OpenRouter LLM calls entirely and go straight to the rule-based explanation. For verifying
+# the pipeline/report/Telegram plumbing without burning API quota on calls whose output isn't
+# actually being checked. Never set for the real workflow_run-triggered (scheduled) path.
+SKIP_LLM_AND_NEWS = os.environ.get("SKIP_LLM_AND_NEWS", "false").lower() == "true"
+
 # Public GitHub Pages base URL where report_builder's daily HTML report is published
 # (recommend.yml commits docs/reports/{date}.html, GitHub Pages serves the docs/ folder).
 # telegram_notifier links here instead of attaching every ticker's chart individually.

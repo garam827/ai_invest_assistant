@@ -15,6 +15,7 @@ import html
 import os
 
 import chart_builder
+import config
 import data_fetcher
 import openrouter_briefing
 import signal_engine
@@ -39,6 +40,7 @@ STYLE = """
   table.summary th, table.summary td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
   table.summary th { background: #f5f5f5; }
   table.summary a { color: inherit; text-decoration: underline; }
+  table.summary tr.category-row td { background: #eceff1; font-weight: bold; text-align: left; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-weight: bold; font-size: 0.85rem; }
   .signal-card { border: 1px solid #ddd; border-left: 5px solid #999; border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; scroll-margin-top: 1rem; }
   .signal-card.buy { border-left-color: #2e7d32; }
@@ -52,11 +54,12 @@ STYLE = """
   details > summary { cursor: pointer; font-weight: bold; padding: 0.5rem 0.8rem; background: #f0f0f0; border-radius: 6px; }
   details[open] > summary { border-radius: 6px 6px 0 0; }
   .news-list h4 { margin-bottom: 0.5rem; }
-  .news-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 0.8rem; }
-  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.6rem 0.9rem; }
+  .news-cards-grid { display: flex; flex-direction: column; gap: 0.5rem; }
+  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.88rem; }
   .news-card a { font-weight: bold; color: #1a237e; text-decoration: none; }
   .news-card a:hover { text-decoration: underline; }
-  .news-meta { color: #888; font-size: 0.85rem; margin: 0.2rem 0; }
+  .news-card p { margin: 0.3rem 0 0; }
+  .news-meta { color: #888; font-size: 0.8rem; margin: 0.2rem 0; }
   .hold-chart-block { margin-bottom: 2rem; }
   .hold-chart-block h4 { margin-bottom: 0.3rem; }
 """
@@ -67,23 +70,31 @@ def _esc(text: str) -> str:
 
 
 def _build_summary_table_html(results: dict) -> str:
+    """results.items()는 ASSET_CLASS_TICKERS 정의 순서를 그대로 따르므로(dict는 삽입 순서 보존),
+    같은 카테고리 종목이 이미 연속으로 붙어 있다 — 그 경계마다 그룹 헤더 행을 끼워 넣기만 하면
+    별도 정렬 없이 카테고리별로 묶어 보여줄 수 있다.
+    """
     rows = []
+    last_category = None
     for ticker, reco in results.items():
         meta = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {})
+        category = meta.get("category", "")
+        if category != last_category:
+            rows.append(f"<tr class='category-row'><td colspan='4'>{_esc(category)}</td></tr>")
+            last_category = category
         color = ACTION_COLOR.get(reco["action"], "#757575")
         ticker_cell = f"<a href='#ticker-{ticker}'>{ticker}</a>" if reco["action"] in SIGNAL_ACTIONS else ticker
         rows.append(
             "<tr>"
             f"<td>{ticker_cell}</td>"
             f"<td>{_esc(meta.get('label', ''))}</td>"
-            f"<td>{_esc(meta.get('category', ''))}</td>"
             f"<td style='color:{color};font-weight:bold'>{reco['action']}</td>"
             f"<td>{reco['close']:.2f}</td>"
             "</tr>"
         )
     return (
         "<table class='summary'><thead><tr>"
-        "<th>티커</th><th>자산</th><th>구분</th><th>액션</th><th>종가</th>"
+        "<th>티커</th><th>자산</th><th>액션</th><th>종가</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
 
@@ -184,10 +195,12 @@ def build_daily_report_html(drive_db, results: dict) -> str:
     """Build the full standalone HTML report page for one day's recommendation results."""
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
-    try:
-        overview = openrouter_briefing.generate_portfolio_overview(results)
-    except Exception:
-        overview = ""
+    overview = ""
+    if not config.SKIP_LLM_AND_NEWS:
+        try:
+            overview = openrouter_briefing.generate_portfolio_overview(results)
+        except Exception:
+            pass
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     table_html = _build_summary_table_html(results)

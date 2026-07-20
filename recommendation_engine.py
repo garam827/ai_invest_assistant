@@ -105,6 +105,18 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
         }
 
     news: list[dict] = []
+    if config.SKIP_LLM_AND_NEWS:
+        logger.info("%s: SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
+        text = _build_rule_based_explanation(ticker, action, summary, news)
+        return {
+            "ticker": ticker,
+            "action": action,
+            "text": text,
+            "news": news,
+            "close": summary["close"],
+            "date": str(summary["date"]),
+        }
+
     try:
         # ASSET_CLASS_TICKERS' proxies (e.g. GLD for gold) search under the underlying
         # asset's name via news_query instead of the ticker itself — "GLD stock news"
