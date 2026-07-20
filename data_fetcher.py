@@ -41,6 +41,11 @@ ASSET_CLASS_TICKERS = {
         "category": "주식",
         "description": "S&P 500 지수를 추종하는 대표 ETF",
     },
+    "QQQ": {
+        "label": "나스닥 100 (Nasdaq-100)",
+        "category": "주식",
+        "description": "나스닥 상장 시가총액 상위 100대 비금융 기업에 투자하는 ETF (기술주 비중 높음)",
+    },
     "BTC-USD": {
         "label": "비트코인 (Bitcoin)",
         "category": "암호화폐",
