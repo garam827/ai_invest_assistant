@@ -29,10 +29,12 @@ ACTION_CLASS = {"매수": "buy", "HOLD": "hold", "매도": "sell"}
 
 STYLE = """
   * { box-sizing: border-box; }
-  body { font-family: "Malgun Gothic", "Nanum Gothic", "Noto Sans CJK KR", sans-serif; max-width: 1400px; width: 94%; margin: 2rem auto; color: #212121; line-height: 1.5; }
+  body { font-family: "Malgun Gothic", "Nanum Gothic", "Noto Sans CJK KR", sans-serif; width: 97%; max-width: none; margin: 2rem auto; color: #212121; line-height: 1.5; }
   h1 { font-size: 1.5rem; }
   h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.4rem; }
-  .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
+  /* 본문 문단(총평/분석 텍스트)만 가독성을 위해 읽기 편한 폭으로 제한 — 표·차트·뉴스 그리드는
+     제한 없이 컨테이너(위 body) 전체 폭을 그대로 쓴다. */
+  .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; max-width: 900px; }
   table.summary { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; }
   table.summary th, table.summary td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
   table.summary th { background: #f5f5f5; }
@@ -45,7 +47,7 @@ STYLE = """
   .signal-card-header .ticker { font-size: 1.15rem; font-weight: bold; }
   .signal-card-header .label { color: #666; }
   .signal-card-header .close { margin-left: auto; color: #666; font-size: 0.9rem; }
-  .analysis { white-space: pre-wrap; background: #fafafa; border-radius: 6px; padding: 0.8rem 1rem; margin: 0.6rem 0; }
+  .analysis { white-space: pre-wrap; background: #fafafa; border-radius: 6px; padding: 0.8rem 1rem; margin: 0.6rem 0; max-width: 900px; }
   details { margin: 0.8rem 0; }
   details > summary { cursor: pointer; font-weight: bold; padding: 0.5rem 0.8rem; background: #f0f0f0; border-radius: 6px; }
   details[open] > summary { border-radius: 6px 6px 0 0; }
