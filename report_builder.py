@@ -55,7 +55,7 @@ STYLE = """
   details[open] > summary { border-radius: 6px 6px 0 0; }
   .news-list h4 { margin-bottom: 0.5rem; }
   .news-cards-grid { display: flex; flex-direction: column; gap: 0.5rem; }
-  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.88rem; }
+  .news-card { border: 1px solid #eee; border-radius: 6px; padding: 0.5rem 0.8rem; font-size: 0.88rem; width: 100%; }
   .news-card a { font-weight: bold; color: #1a237e; text-decoration: none; }
   .news-card a:hover { text-decoration: underline; }
   .news-card p { margin: 0.3rem 0 0; }
