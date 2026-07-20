@@ -1,6 +1,6 @@
 # 텔레그램 알림 설정 가이드
 
-`telegram_notifier.py`가 매일 자산군 추천 결과(요약 텍스트 + 매수/매도 종목 차트 이미지)를 보내기 위한 설정 절차입니다. `recommendation_engine.run_asset_class_recommendations`(즉 GitHub Actions의 `recommend.yml` 크론)에서만 발동하고, Streamlit UI에서 "조회" 버튼을 눌러 보는 것으로는 발송되지 않습니다.
+`telegram_notifier.py`가 매일 자산군 추천 결과(티커/구분/액션/종가 요약 표 + 일일 리포트 URL 링크 1건, v3.0부터 종목별 차트 이미지 첨부는 하지 않음 — 차트는 리포트 안에 있음)를 보내기 위한 설정 절차입니다. `recommendation_engine.run_asset_class_recommendations`(즉 GitHub Actions의 `recommend.yml` 크론)에서만 발동하고, Streamlit UI에서 "조회" 버튼을 눌러 보는 것으로는 발송되지 않습니다.
 
 ## 1. 봇 생성 (@BotFather)
 1. 텔레그램에서 **[@BotFather](https://t.me/BotFather)** 검색 후 대화 시작
@@ -51,16 +51,29 @@ gh secret set TELEGRAM_CHAT_ID --repo <owner>/<repo>
 ```
 (또는 GitHub 저장소 → Settings → Secrets and variables → Actions에서 직접 추가)
 
+**중요**: 로컬 `.env`만 바꾸는 것으로는 GitHub Actions 크론에 반영되지 않는다 — 로컬 실행과 GitHub Actions는 값을 완전히 별도로 읽는다(로컬은 `.env`, 워크플로는 저장소 Secrets). 둘 다 갱신해야 한다. `gh secret list`로 각 Secret이 마지막으로 언제 갱신됐는지 확인할 수 있으니, `.env`를 바꾼 뒤에는 이 명령으로 `TELEGRAM_CHAT_ID`도 같은 날짜로 갱신됐는지 대조해 볼 것.
+
+## 6. 1:1 채팅 → 그룹 채팅으로 전환하기
+여러 명이 같이 알림을 받고(초대/추방도 가능하게) 싶다면:
+1. 텔레그램 앱에서 새 그룹 생성 → 원하는 사람 초대.
+2. 그 그룹에 봇도 멤버로 추가(사용자명으로 검색). 발송 전용이라 관리자 권한은 필요 없음.
+3. 그룹에 아무 메시지나 하나 보낸 뒤 위 **2. chat_id 확인**을 다시 수행 — 그룹 chat_id는 음수(`-`로 시작)로 나온다.
+4. `.env`와 GitHub Secret `TELEGRAM_CHAT_ID`를 새 그룹 id로 **둘 다** 교체(바로 위 "중요" 참고).
+5. `recommend.yml`을 `workflow_dispatch`로 한 번 수동 실행해서(아래 7절의 `skip_llm_and_news=true`로 API 비용 없이) 새 그룹에 메시지가 오는지 확인.
+
+## 7. 수동 테스트 시 LLM/뉴스 API 호출 없이 실행하기 (v3.5)
+`recommend.yml`을 GitHub Actions 탭에서 "Run workflow"로 수동 실행할 때 `skip_llm_and_news` 입력을 체크(기본값 `true`)하면 Exa 뉴스 수집과 OpenRouter LLM 호출을 건너뛰고 규칙 기반 설명으로 대체한다 — 파이프라인/리포트/텔레그램 배관만 확인하고 싶을 때(예: 이 문서의 그룹 전환 테스트) API 사용량을 아낄 수 있다. `gh` CLI로는 `gh workflow run recommend.yml -f skip_llm_and_news=true`. 실제 뉴스/LLM 분석까지 포함해 검증하려면 `-f skip_llm_and_news=false`로 실행할 것 — 매일 자동으로 도는 스케줄 실행(`workflow_run` 트리거)에는 이 입력 자체가 없어 항상 실제 호출이 일어난다.
+
 ## 트러블슈팅
 
 **`getUpdates` 응답이 계속 `"result":[]`로 빈 채로 나옴**
 → 봇과의 대화(또는 그룹)에 메시지를 먼저 보내지 않은 것. 텔레그램 봇은 사용자가 먼저 말을 걸어야 그 대화의 정보를 조회할 수 있음.
 
-**`send_message`/`send_photo` 호출 시 401 Unauthorized**
+**`send_message` 호출 시 401 Unauthorized**
 → 봇 토큰이 잘못됨. @BotFather에서 `/mybots` → 해당 봇 선택 → "API Token"으로 재확인.
 
-**`send_message`/`send_photo` 호출 시 400 Bad Request (chat not found)**
-→ `chat_id`가 잘못됨. 그룹인데 봇을 그룹에서 추방했거나, 개인/그룹 id를 혼동했을 가능성. 2단계를 다시 수행해 정확한 id 확인.
+**`send_message` 호출 시 400 Bad Request (chat not found)**
+→ `chat_id`가 잘못됨. 그룹인데 봇을 그룹에서 추방했거나, 개인/그룹 id를 혼동했을 가능성, 또는 `.env`만 바꾸고 GitHub Secret은 안 바꿨을 가능성(5절 참고). 2단계를 다시 수행해 정확한 id 확인.
 
-**차트 이미지가 하나도 안 옴**
-→ 정상일 수 있음 — 오늘 매수/매도 시그널이 발생한 종목이 없으면(전부 HOLD) 요약 텍스트만 오고 차트는 첨부되지 않음 (의도된 동작, [investment_assistant_spec.md](investment_assistant_spec.md) 참고).
+**GitHub Actions에서는 안 오는데 로컬 테스트는 됨**
+→ 거의 항상 Secret이 `.env`와 다른 값으로 남아있는 경우. `gh secret list`로 `TELEGRAM_CHAT_ID`가 마지막으로 언제 갱신됐는지 확인해 `.env`를 바꾼 시점과 대조할 것.
