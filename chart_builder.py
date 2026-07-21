@@ -37,7 +37,7 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
         cols=1,
         shared_xaxes=True,
         vertical_spacing=0.1,
-        row_heights=[0.5, 0.25, 0.25],  # 캔들:거래량:ATR = 2:1:1
+        row_heights=[0.6, 0.2, 0.2],  # 캔들:거래량:ATR = 3:1:1
         subplot_titles=(f"{ticker} 캔들차트 + 시그널 지표", "거래량 (거래량 급증일 강조)", "ATR (14일)"),
     )
 
