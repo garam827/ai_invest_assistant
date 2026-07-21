@@ -73,3 +73,10 @@ SKIP_LLM_AND_NEWS = os.environ.get("SKIP_LLM_AND_NEWS", "false").lower() == "tru
 # (recommend.yml commits docs/reports/{date}.html, GitHub Pages serves the docs/ folder).
 # telegram_notifier links here instead of attaching every ticker's chart individually.
 REPORT_BASE_URL = os.environ.get("REPORT_BASE_URL", "https://garam827.github.io/ai_invest_assistant/reports")
+
+# Streamlit UI-only toggle for public deployment (e.g. Streamlit Community Cloud): when false,
+# app.py's chart tabs skip the OpenRouter LLM call (news collection still happens, gated behind
+# an explicit button — see app.py) and fall back to a rule-based explanation instead. Defaults
+# to true so local dev is unaffected; set to "false" via the deployed app's secrets/env. This is
+# independent of SKIP_LLM_AND_NEWS above (that skips news too, and is cron-only).
+STREAMLIT_ENABLE_LLM = os.environ.get("STREAMLIT_ENABLE_LLM", "true").lower() == "true"

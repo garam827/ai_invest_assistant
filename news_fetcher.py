@@ -65,6 +65,21 @@ def fetch_ticker_news_exa(
     return items
 
 
+def get_cached_news(drive_db, ticker: str, date: str | None = None) -> list[dict] | None:
+    """Read-through cache check against the same per-date archive archive_news writes to.
+
+    Returns the cached list if this ticker already has news archived for `date` (defaults
+    to today), or None if there's nothing cached yet — callers should fetch from Exa in that
+    case and archive_news() the result. Distinct multi-user callers (e.g. the Streamlit UI)
+    requesting the same ticker on the same day share one Exa call instead of paying for it
+    per visitor.
+    """
+    date = date or datetime.date.today().isoformat()
+    archive = drive_db.load_json(f"{NEWS_ARCHIVE_PREFIX}{date}.json") or {}
+    cached = archive.get(ticker)
+    return cached if cached else None
+
+
 def archive_news(drive_db, ticker: str, news_items: list[dict], date: str | None = None) -> list[dict]:
     """Persist news used for LLM analysis to a per-date Drive JSON archive (one file per
     calendar date, `{ticker: [news_item, ...]}`), deduped by article link (falls back to

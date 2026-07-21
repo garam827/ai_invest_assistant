@@ -47,11 +47,18 @@ def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNE
     return age_days <= max_age_days
 
 
-def _build_rule_based_explanation(ticker: str, action: str, summary: dict, news: list[dict] | None = None) -> str:
-    """Deterministic fallback explanation when the news/LLM call fails — cites the exact
-    numeric rule that fired, so a 매수/매도 call is never sent with no reasoning at all.
+def _build_rule_based_explanation(
+    ticker: str, action: str, summary: dict, news: list[dict] | None = None, reason: str = "failed"
+) -> str:
+    """Deterministic fallback explanation when the LLM isn't used — cites the exact numeric
+    rule that fired, so a 매수/매도 call is never sent with no reasoning at all.
+
+    `reason` distinguishes an actual failure ("failed": LLM/news call errored) from an
+    intentional skip ("disabled": config.SKIP_LLM_AND_NEWS or use_llm=False), just for the
+    header wording — the rest of the explanation is identical either way.
     """
-    lines = ["[규칙 기반 자동 생성 — LLM 분석 실패로 대체]"]
+    header = "[규칙 기반 자동 생성 — LLM 분석 실패로 대체]" if reason == "failed" else "[규칙 기반 자동 생성 — LLM 분석 비활성화]"
+    lines = [header]
     if action == "매수":
         window = "20일" if summary["breakout_20"] else "100일"
         lines.append(f"종가 {summary['close']:.2f}가 {window} Donchian 채널 상단을 상향 돌파해 매수 시그널이 발생했습니다.")
@@ -65,11 +72,12 @@ def _build_rule_based_explanation(ticker: str, action: str, summary: dict, news:
         f"거래량 급증: {'예' if summary['volume_surge'] else '아니오'}"
     )
     if news:
-        lines.append(f"(참고: 관련 뉴스 {len(news)}건은 수집됐으나 LLM 분석이 실패해 요약은 생략됨)")
+        note = "LLM 분석이 실패해 요약은 생략됨" if reason == "failed" else "LLM 분석은 비활성화되어 요약은 생략됨"
+        lines.append(f"(참고: 관련 뉴스 {len(news)}건은 수집됐으나 {note})")
     return "\n".join(lines)
 
 
-def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None:
+def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool = True) -> dict | None:
     """Get a 매수/HOLD/매도 call for one ticker.
 
     The action itself always comes from signal_engine.get_mechanical_action — deterministic,
@@ -78,6 +86,10 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
     fails (rate limit, outage, etc.) we fall back to a rule-based explanation instead of
     losing the recommendation entirely. The LLM's own parsed action is logged if it disagrees
     with the mechanical one, but never overrides it.
+
+    `use_llm=False` (e.g. app.py's public-deployment mode, config.STREAMLIT_ENABLE_LLM) still
+    collects news but skips the OpenRouter call entirely, going straight to the rule-based
+    explanation — distinct from config.SKIP_LLM_AND_NEWS below, which skips news too.
 
     Returns None if the ticker has no data in Drive yet, or if that data is stale
     (see _is_data_fresh) — a stale-data recommendation would be misleading.
@@ -107,7 +119,7 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
     news: list[dict] = []
     if config.SKIP_LLM_AND_NEWS:
         logger.info("%s: SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
-        text = _build_rule_based_explanation(ticker, action, summary, news)
+        text = _build_rule_based_explanation(ticker, action, summary, news, reason="disabled")
         return {
             "ticker": ticker,
             "action": action,
@@ -118,14 +130,30 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str) -> dict | None
         }
 
     try:
-        # ASSET_CLASS_TICKERS' proxies (e.g. GLD for gold) search under the underlying
-        # asset's name via news_query instead of the ticker itself — "GLD stock news"
-        # mostly surfaces "GLD down X%" wire blurbs, not the macro drivers behind the move.
-        news_query = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("news_query")
-        news = news_fetcher.fetch_ticker_news_exa(ticker, query=news_query)
-        news_fetcher.archive_news(drive_db, ticker, news)
+        # Read-through cache first — same ticker/date requested by another user (or an
+        # earlier run today) reuses the archived result instead of paying for Exa again.
+        news = news_fetcher.get_cached_news(drive_db, ticker)
+        if news is None:
+            # ASSET_CLASS_TICKERS' proxies (e.g. GLD for gold) search under the underlying
+            # asset's name via news_query instead of the ticker itself — "GLD stock news"
+            # mostly surfaces "GLD down X%" wire blurbs, not the macro drivers behind the move.
+            news_query = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("news_query")
+            news = news_fetcher.fetch_ticker_news_exa(ticker, query=news_query)
+            news_fetcher.archive_news(drive_db, ticker, news)
     except Exception:
         logger.exception("%s: news fetch failed, proceeding without it", ticker)
+        news = []
+
+    if not use_llm:
+        text = _build_rule_based_explanation(ticker, action, summary, news, reason="disabled")
+        return {
+            "ticker": ticker,
+            "action": action,
+            "text": text,
+            "news": news,
+            "close": summary["close"],
+            "date": str(summary["date"]),
+        }
 
     try:
         reco = openrouter_briefing.generate_recommendation(ticker, news, summary)

@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import chart_builder
+import config
 import data_fetcher
 import recommendation_engine
 import report_builder
@@ -92,14 +93,15 @@ def load_ticker_data(ticker: str) -> pd.DataFrame | None:
     return get_drive_db().load_ticker(ticker)
 
 
-@st.cache_data(ttl=86400, show_spinner="뉴스 수집 및 LLM 분석 중...")
-def get_recommendation(ticker: str, latest_date: str) -> dict:
-    """Cached by (ticker, latest bar date) — LLM/news calls only happen once per new trading
-    day per ticker, not on every rerun/tab-switch (st.tabs bodies all execute every rerun).
-    Delegates to recommendation_engine so the cron job (recommendation_engine.py) and this
-    UI share the exact same logic.
+@st.cache_data(ttl=86400, show_spinner="뉴스 수집 및 분석 중...")
+def get_recommendation(ticker: str, latest_date: str, use_llm: bool) -> dict:
+    """Cached by (ticker, latest bar date, use_llm) — LLM/news calls only happen once per new
+    trading day per ticker, not on every rerun/tab-switch (st.tabs bodies all execute every
+    rerun). Delegates to recommendation_engine so the cron job (recommendation_engine.py) and
+    this UI share the exact same logic. `use_llm` is config.STREAMLIT_ENABLE_LLM — see
+    render_ticker_chart for the button gate that guards the news call itself when it's off.
     """
-    return recommendation_engine.get_recommendation_for_ticker(get_drive_db(), ticker)
+    return recommendation_engine.get_recommendation_for_ticker(get_drive_db(), ticker, use_llm=use_llm)
 
 
 @st.cache_data(ttl=3600, show_spinner="리포트 목록 불러오는 중...")
@@ -167,7 +169,18 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
 
     st.subheader("Mr. Serenity의 매매 추천")
     try:
-        reco = get_recommendation(ticker, str(latest["Date"]))
+        if not config.STREAMLIT_ENABLE_LLM:
+            # Public-deployment mode: news/analysis costs API quota per click, so require an
+            # explicit trigger instead of auto-firing on every "조회" — keyed by ticker so
+            # switching tickers naturally resets it without any manual state cleanup.
+            trigger_key = f"{key_prefix}_news_triggered_{ticker}"
+            if not st.session_state.get(trigger_key):
+                st.info("API 사용량 관리를 위해 뉴스 수집·분석은 버튼을 눌러야 실행됩니다. (LLM 서술 분석은 이 배포본에서 비활성화되어 있으며, 규칙 기반 설명으로 대체됩니다.)")
+                if not st.button("뉴스/분석 불러오기", key=f"{key_prefix}_load_btn_{ticker}"):
+                    return
+                st.session_state[trigger_key] = True
+
+        reco = get_recommendation(ticker, str(latest["Date"]), config.STREAMLIT_ENABLE_LLM)
         if reco is None:
             st.info("데이터가 오래되어(신선도 기준 초과) 추천을 생성하지 않았습니다. '데이터 적재' 탭에서 갱신해주세요.")
             return
