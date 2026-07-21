@@ -1,4 +1,6 @@
-# Streamlit 앱을 GCP(Cloud Run)에 배포하는 가이드
+# Streamlit 앱을 GCP(Cloud Run)에 배포하는 가이드 (미검증 대안책)
+
+> **실제 채택된 배포 경로는 이 문서가 아니라 [GCP_Setyo_Guide.md](GCP_Setyo_Guide.md)입니다** (Compute Engine VM + Docker Compose, 실전 트라이얼 앤 에러로 검증됨). 이 문서(Cloud Run)는 아직 실제로 배포해보지 않은 미검증 대안 설계로 참고용으로만 남겨둔다 — 향후 트래픽이 늘어 서버리스/스케일-투-제로가 실제로 필요해지면 다시 꺼내 쓸 것.
 
 `app.py`(Streamlit UI)를 GCP에 공개 배포하기 위한 절차입니다. 크론(`collect.yml`/`recommend.yml`)은 이미 GitHub Actions에서 무인으로 돌고 있으므로, 이 문서는 오직 **사람이 직접 접속해서 보는 Streamlit 대시보드**를 배포하는 것만 다룹니다.
 

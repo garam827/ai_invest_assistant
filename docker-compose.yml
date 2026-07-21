@@ -1,0 +1,14 @@
+services:
+  streamlit-app:
+    build: .
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+    env_file:
+      - .env
+    # client_secret.json/token.json are gitignored and excluded from the Docker build context
+    # (.dockerignore) on purpose — mounted read-only at runtime instead of baked into the image,
+    # so the image itself never contains credentials.
+    volumes:
+      - ./client_secret.json:/app/client_secret.json:ro
+      - ./token.json:/app/token.json:ro
