@@ -3,13 +3,15 @@ name: Daily data collection
 on:
   schedule:
     # 22:30 UTC ≈ 18:30 EDT / 17:30 EST — safely after the 16:00 ET market close either way.
-    # Day-of-week mask is UTC, but the mental model here is "weekday mornings in KST" —
-    # UTC Sun-Thu (0-4) is KST Mon-Fri 07:30 next day (UTC+9 crosses midnight). Using UTC's
-    # own Mon-Fri (1-5) instead would land on KST Tue-Sat: skips Monday, adds an unwanted
-    # Saturday. Sunday's run just re-confirms Friday's close (no new US trading day yet),
-    # which doubles as the Monday-morning catch-up.
-    # GitHub Actions cron is UTC-only and best-effort (can be delayed under platform load).
-    - cron: "30 22 * * 0-4"
+    # Day-of-week mask is UTC Mon-Fri (1-5), which lands on KST Tue-Sat 07:30 next day
+    # (UTC+9 crosses midnight) — NOT KST Mon-Fri. That's intentional, not a bug: a KST
+    # Monday-morning run would need a Sunday UTC trigger, but at that point no new US
+    # trading day has happened yet (still Friday's close), so it'd just be a rerun of
+    # data already sent — not worth an extra day of runs just to fill a slot with no new data.
+    # GitHub Actions cron is UTC-only and best-effort — actual fire time has been observed
+    # up to ~1hr late (e.g. 22:30 target firing at 23:31 UTC), especially at busy round-number
+    # times like :30. This is a GitHub platform characteristic, not something fixable here.
+    - cron: "30 22 * * 1-5"
   workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
 
 jobs:
