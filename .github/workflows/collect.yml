@@ -2,20 +2,20 @@ name: Daily data collection
 
 on:
   schedule:
-    # 21:37 UTC ≈ 17:37 EDT (97min after the 16:00 ET close) / 16:37 EST (37min after) —
+    # 21:57 UTC ≈ 17:57 EDT (117min after the 16:00 ET close) / 16:57 EST (57min after) —
     # thinner buffer than the original 22:30 UTC target during EST (Nov-Mar), traded off
     # deliberately for an earlier KST landing time; if yfinance data lags on some winter
     # day, run_daily_update just finds no new row and self-heals on the next run.
-    # Minute :37 is deliberately non-round (not :00/:15/:30/:45) — GitHub Actions queues
+    # Minute :57 is deliberately non-round (not :00/:15/:30/:45) — GitHub Actions queues
     # scheduled workflows more heavily at those popular marks, and best-effort delay has
     # been observed up to ~1hr (e.g. a 22:30 target firing at 23:31 UTC). This is a GitHub
     # platform characteristic, not something a cron expression can fully avoid, only reduce.
-    # Day-of-week mask is UTC Mon-Fri (1-5), which lands on KST Tue-Sat ~06:37 next day
+    # Day-of-week mask is UTC Mon-Fri (1-5), which lands on KST Tue-Sat ~06:57 next day
     # (UTC+9 crosses midnight) — NOT KST Mon-Fri. That's intentional, not a bug: a KST
     # Monday-morning run would need a Sunday UTC trigger, but at that point no new US
     # trading day has happened yet (still Friday's close), so it'd just be a rerun of
     # data already sent — not worth an extra day of runs just to fill a slot with no new data.
-    - cron: "37 21 * * 1-5"
+    - cron: "57 21 * * 1-5"
   workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
 
 jobs:
