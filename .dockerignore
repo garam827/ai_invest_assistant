@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+client_secret.json
+token.json
+*.parquet
+*.log
+.git/
+.cache_ggshield
+spec_archive/
+docs/
