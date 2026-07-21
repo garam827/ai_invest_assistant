@@ -31,8 +31,11 @@ ACTION_CLASS = {"매수": "buy", "HOLD": "hold", "매도": "sell"}
 STYLE = """
   * { box-sizing: border-box; }
   body { font-family: "Malgun Gothic", "Nanum Gothic", "Noto Sans CJK KR", sans-serif; width: 97%; max-width: none; margin: 2rem auto; color: #212121; line-height: 1.5; }
-  h1 { font-size: 1.5rem; }
+  h1 { font-size: 1.5rem; margin: 0; }
   h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 2px solid #eee; padding-bottom: 0.4rem; }
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; }
+  .chart-legend-key { font-size: 0.75rem; color: #888; text-align: right; max-width: 340px; line-height: 1.4; }
+  .chart-frame { border: 1px solid #ddd; border-radius: 6px; padding: 0.8rem; margin: 0.8rem 0; }
   /* 본문 문단(총평/분석 텍스트)만 가독성을 위해 읽기 편한 폭으로 제한 — 표·차트·뉴스 그리드는
      제한 없이 컨테이너(위 body) 전체 폭을 그대로 쓴다. */
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; max-width: 900px; }
@@ -148,7 +151,11 @@ def _build_signal_sections_html(drive_db, results: dict, chart_js_loaded: list[b
         except Exception:
             chart_html = None
 
-        chart_block = f"<details><summary>📈 차트 보기 ({CHART_PERIOD_DAYS // 30}개월)</summary>{chart_html}</details>" if chart_html else ""
+        chart_block = (
+            f"<details><summary>📈 차트 보기 ({CHART_PERIOD_DAYS // 30}개월)</summary><div class='chart-frame'>{chart_html}</div></details>"
+            if chart_html
+            else ""
+        )
 
         sections.append(
             f"<section id='ticker-{ticker}' class='signal-card {action_class}'>"
@@ -185,7 +192,10 @@ def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]
             continue
         if chart_html is None:
             continue
-        blocks.append(f"<div class='hold-chart-block'><h4>{ticker} — {_esc(meta.get('label', ''))} (HOLD)</h4>{chart_html}</div>")
+        blocks.append(
+            f"<div class='hold-chart-block'><h4>{ticker} — {_esc(meta.get('label', ''))} (HOLD)</h4>"
+            f"<div class='chart-frame'>{chart_html}</div></div>"
+        )
     if not blocks:
         return ""
     return f"<details><summary>📊 HOLD 종목 차트 보기 ({len(blocks)}개, 참고용)</summary>{''.join(blocks)}</details>"
@@ -218,7 +228,10 @@ def build_daily_report_html(drive_db, results: dict) -> str:
 <style>{STYLE}</style>
 </head>
 <body>
+<div class="page-header">
 <h1>톰 바소 추세추종 일일 리포트 ({date})</h1>
+<div class="chart-legend-key">BB=볼린저밴드 · DC20/DC100=Donchian채널(20일/100일) · 손절선=트레일링 스탑(고점−3×ATR)</div>
+</div>
 {overview_html}
 {table_html}
 <h2>오늘의 매수/매도 시그널</h2>
