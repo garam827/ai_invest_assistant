@@ -53,12 +53,19 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             name="가격",
             increasing_line_color="#26a69a",
             decreasing_line_color="#ef5350",
+            showlegend=False,
         ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["BB_Upper"], name="BB상단", line=dict(color="rgba(120,144,156,0.6)", width=1)),
+        go.Scatter(
+            x=view["Date"],
+            y=view["BB_Upper"],
+            name="BB",
+            legendgroup="BB",
+            line=dict(color="rgba(120,144,156,0.6)", width=1),
+        ),
         row=1,
         col=1,
     )
@@ -67,6 +74,8 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             x=view["Date"],
             y=view["BB_Lower"],
             name="BB하단",
+            legendgroup="BB",
+            showlegend=False,
             line=dict(color="rgba(120,144,156,0.6)", width=1),
             fill="tonexty",
             fillcolor="rgba(120,144,156,0.12)",
@@ -75,27 +84,60 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["BB_Middle"], name="BB중심", line=dict(color="#546e7a", width=1, dash="dash")),
+        go.Scatter(
+            x=view["Date"],
+            y=view["BB_Middle"],
+            name="BB중심",
+            legendgroup="BB",
+            showlegend=False,
+            line=dict(color="#546e7a", width=1, dash="dash"),
+        ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Upper_20"], name="DC20상단", line=dict(color="#42a5f5", width=1, dash="dot")),
+        go.Scatter(
+            x=view["Date"],
+            y=view["Donchian_Upper_20"],
+            name="DC20",
+            legendgroup="DC20",
+            line=dict(color="#42a5f5", width=1, dash="dot"),
+        ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Lower_20"], name="DC20하단", line=dict(color="#42a5f5", width=1, dash="dot")),
+        go.Scatter(
+            x=view["Date"],
+            y=view["Donchian_Lower_20"],
+            name="DC20하단",
+            legendgroup="DC20",
+            showlegend=False,
+            line=dict(color="#42a5f5", width=1, dash="dot"),
+        ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Upper_100"], name="DC100상단", line=dict(color="#7e57c2", width=1, dash="dash")),
+        go.Scatter(
+            x=view["Date"],
+            y=view["Donchian_Upper_100"],
+            name="DC100",
+            legendgroup="DC100",
+            line=dict(color="#7e57c2", width=1, dash="dash"),
+        ),
         row=1,
         col=1,
     )
     fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Donchian_Lower_100"], name="DC100하단", line=dict(color="#7e57c2", width=1, dash="dash")),
+        go.Scatter(
+            x=view["Date"],
+            y=view["Donchian_Lower_100"],
+            name="DC100하단",
+            legendgroup="DC100",
+            showlegend=False,
+            line=dict(color="#7e57c2", width=1, dash="dash"),
+        ),
         row=1,
         col=1,
     )
@@ -190,18 +232,39 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
     )
 
     volume_colors = ["#ff7043" if surge else "#90a4ae" for surge in view["Volume_Surge"]]
-    fig.add_trace(go.Bar(x=view["Date"], y=view["Volume"], name="거래량", marker_color=volume_colors), row=2, col=1)
+    fig.add_trace(
+        go.Bar(x=view["Date"], y=view["Volume"], name="거래량", marker_color=volume_colors, showlegend=False),
+        row=2,
+        col=1,
+    )
 
-    fig.add_trace(go.Scatter(x=view["Date"], y=view["ATR"], name="ATR", line=dict(color="#ffa726", width=1.5)), row=3, col=1)
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["ATR"], name="ATR", line=dict(color="#ffa726", width=1.5), showlegend=False),
+        row=3,
+        col=1,
+    )
 
     fig.update_layout(
-        height=950,
+        height=1020,
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         template="plotly_white",
         font=dict(family=FONT_FAMILY),
-        legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, bgcolor="rgba(0,0,0,0)"),
-        margin=dict(t=60, b=20, r=120, l=40),
+        # Horizontal legend below the chart (not a fixed-width column on the right) so the
+        # plot area itself doesn't get squeezed narrow on mobile screens. Only the overlays
+        # that actually need distinguishing get a legend entry — 가격/거래량/ATR are already
+        # self-evident from their own (sub)plot, and BB/DC20/DC100's upper+lower pairs are
+        # grouped under one shared entry (legendgroup) so clicking it toggles both lines.
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.06,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(0,0,0,0)",
+            groupclick="togglegroup",
+        ),
+        margin=dict(t=60, b=90, r=40, l=40),
     )
     fig.update_xaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
