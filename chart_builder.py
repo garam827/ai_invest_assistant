@@ -64,7 +64,7 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             y=view["BB_Upper"],
             name="BB",
             legendgroup="BB",
-            line=dict(color="rgba(120,144,156,0.6)", width=1),
+            line=dict(color="rgba(120,144,156,0.3)", width=1),
         ),
         row=1,
         col=1,
@@ -76,9 +76,9 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             name="BB하단",
             legendgroup="BB",
             showlegend=False,
-            line=dict(color="rgba(120,144,156,0.6)", width=1),
+            line=dict(color="rgba(120,144,156,0.3)", width=1),
             fill="tonexty",
-            fillcolor="rgba(120,144,156,0.12)",
+            fillcolor="rgba(120,144,156,0.05)",
         ),
         row=1,
         col=1,
@@ -90,7 +90,7 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             name="BB중심",
             legendgroup="BB",
             showlegend=False,
-            line=dict(color="#546e7a", width=1, dash="dash"),
+            line=dict(color="rgba(84,110,122,0.4)", width=1, dash="dash"),
         ),
         row=1,
         col=1,
@@ -148,31 +148,13 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
     )
 
     # Ichimoku Kinko Hyo (일목균형표) — chart-only reference overlay, see signal_engine.calculate_ichimoku.
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Ichimoku_Tenkan"], name="전환선", line=dict(color="#e67e22", width=1)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(x=view["Date"], y=view["Ichimoku_Kijun"], name="기준선", line=dict(color="#2980b9", width=1)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=view["Date"],
-            y=view["Ichimoku_Chikou"],
-            name="후행스팬",
-            line=dict(color="#8e44ad", width=1, dash="dot"),
-        ),
-        row=1,
-        col=1,
-    )
-
-    # Cloud (Senkou A/B) drawn the traditional way — extended `displacement` business days past
-    # the last candle. Senkou_A/B columns are already displaced (shift(+displacement)) so they
-    # cover the historical portion; the tail of the "_Raw" (undisplaced) columns supplies the
-    # future-projecting tip, continuing the same series with no gap (see calculate_ichimoku).
+    # Only the cloud (Senkou A/B) is drawn, colored by 양운(bullish, Senkou A >= B)/음운(bearish) —
+    # 전환선/기준선/후행스팬 are still computed in signal_engine (Senkou A needs Tenkan/Kijun) but
+    # are not plotted, per request to keep the chart to just the bullish/bearish cloud read.
+    # Extended `displacement` business days past the last candle, the traditional Ichimoku look.
+    # Senkou_A/B columns are already displaced (shift(+displacement)) so they cover the historical
+    # portion; the tail of the "_Raw" (undisplaced) columns supplies the future-projecting tip,
+    # continuing the same series with no gap (see calculate_ichimoku).
     displacement = config.ICHIMOKU_DISPLACEMENT
     if len(view) > displacement:
         future_dates = pd.bdate_range(start=view["Date"].max() + pd.Timedelta(days=1), periods=displacement)
@@ -186,25 +168,54 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
             ignore_index=True,
         )
     else:
-        cloud_dates, cloud_a, cloud_b = view["Date"], view["Ichimoku_SenkouA"], view["Ichimoku_SenkouB"]
+        cloud_dates = view["Date"].reset_index(drop=True)
+        cloud_a = view["Ichimoku_SenkouA"].reset_index(drop=True)
+        cloud_b = view["Ichimoku_SenkouB"].reset_index(drop=True)
 
-    fig.add_trace(
-        go.Scatter(x=cloud_dates, y=cloud_a, name="선행스팬A", line=dict(color="rgba(46,204,113,0.6)", width=1)),
-        row=1,
-        col=1,
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=cloud_dates,
-            y=cloud_b,
-            name="선행스팬B",
-            line=dict(color="rgba(231,76,60,0.6)", width=1),
-            fill="tonexty",
-            fillcolor="rgba(149,165,166,0.18)",
-        ),
-        row=1,
-        col=1,
-    )
+    # Plotly can't conditionally color a single trace's fill, so the cloud is split into
+    # contiguous 양운/음운 runs (by sign of Senkou A - B) and drawn as one filled trace per run —
+    # each segment includes its follow-up point too, so adjacent segments join with no visual gap.
+    bullish_mask = cloud_a >= cloud_b
+    CLOUD_COLORS = {
+        True: {"label": "양운", "line": "rgba(239,83,80,0.55)", "fill": "rgba(239,83,80,0.15)"},
+        False: {"label": "음운", "line": "rgba(66,165,245,0.55)", "fill": "rgba(66,165,245,0.15)"},
+    }
+    shown_cloud_labels: set[bool] = set()
+    seg_start = 0
+    for i in range(1, len(bullish_mask) + 1):
+        if i == len(bullish_mask) or bullish_mask.iloc[i] != bullish_mask.iloc[seg_start]:
+            bullish = bool(bullish_mask.iloc[seg_start])
+            colors = CLOUD_COLORS[bullish]
+            seg = slice(seg_start, min(i + 1, len(bullish_mask)))
+            show_this = bullish not in shown_cloud_labels
+            shown_cloud_labels.add(bullish)
+            fig.add_trace(
+                go.Scatter(
+                    x=cloud_dates.iloc[seg],
+                    y=cloud_a.iloc[seg],
+                    name=colors["label"],
+                    legendgroup=colors["label"],
+                    showlegend=False,
+                    line=dict(color=colors["line"], width=1),
+                ),
+                row=1,
+                col=1,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=cloud_dates.iloc[seg],
+                    y=cloud_b.iloc[seg],
+                    name=colors["label"],
+                    legendgroup=colors["label"],
+                    showlegend=show_this,
+                    line=dict(color=colors["line"], width=1),
+                    fill="tonexty",
+                    fillcolor=colors["fill"],
+                ),
+                row=1,
+                col=1,
+            )
+            seg_start = i
 
     buy_points = view[view["Buy_Trigger"]]
     fig.add_trace(
