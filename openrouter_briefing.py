@@ -28,7 +28,10 @@ RECOMMENDATION_SYSTEM_PROMPT = (
     "종가가 트레일링 스탑(최근 고점 - 3×ATR) 아래로 내려오면 매도, 그 사이에는 보유(HOLD)다. "
     "뉴스의 감정이나 예측으로 판단하지 말고, 주어진 시그널 상태와 뉴스가 그 추세를 뒷받침하는 팩트인지만 "
     "걸러내어 위 규칙에 따라 최종 추천을 내려라. 답변 첫 줄은 반드시 '추천: 매수', '추천: HOLD', '추천: 매도' "
-    "중 하나로 시작하고, 이어서 그 근거를 설명하라."
+    "중 하나로 시작하고, 이어서 그 근거를 설명하라. "
+    "시그널 상태에 일목균형표 구름 정보가 포함되어 있다면, 이는 어디까지나 보조 참고 정보다 — 이것만으로 "
+    "위 추천(첫 줄)을 절대 바꾸지 마라. 다만 그 정보가 기계적 판정과 엇갈린다면(예: 매수인데 구름 아래/음운), "
+    "비중을 줄여 진입하는 등 리스크 관리 코멘트를 근거 설명에 덧붙일 수 있다."
 )
 
 _RECOMMENDATION_PATTERN = re.compile(r"추천\s*[:：]\s*(매수|HOLD|매도)")
@@ -92,10 +95,14 @@ def generate_briefing(ticker: str, news_items: list[dict]) -> str:
     return _call_chat(SYSTEM_PROMPT, prompt)
 
 
-def generate_recommendation(ticker: str, news_items: list[dict], signal_summary: dict) -> dict:
+def generate_recommendation(
+    ticker: str, news_items: list[dict], signal_summary: dict, ichimoku_confluence: dict | None = None
+) -> dict:
     """Ask the LLM (as Mr. Serenity) for a mechanical 매수/HOLD/매도 call.
 
     `signal_summary` is the dict returned by signal_engine.get_latest_signal_summary.
+    `ichimoku_confluence` (signal_engine.get_ichimoku_confluence) is advisory-only context —
+    see RECOMMENDATION_SYSTEM_PROMPT, it must never change the parsed `action` below.
     Returns {"action": "매수"|"HOLD"|"매도", "text": full reasoning}. `action` defaults to
     "HOLD" if the model doesn't follow the required "추천: ..." prefix format.
     """
@@ -110,6 +117,10 @@ def generate_recommendation(ticker: str, news_items: list[dict], signal_summary:
         f"- 청산 시그널(종가<트레일링스탑): {signal_summary['exit_signal']}\n"
         f"- 거래량 급증: {signal_summary['volume_surge']}"
     )
+    if ichimoku_confluence is not None:
+        position_kr = {"above": "구름 위", "below": "구름 아래", "inside": "구름 안"}[ichimoku_confluence["position"]]
+        cloud_kr = "양운(상승 구름)" if ichimoku_confluence["cloud_bullish"] else "음운(하락 구름)"
+        signal_block += f"\n- 일목균형표(보조 참고): {position_kr} · {cloud_kr}"
     prompt = f"{news_block}\n\n{signal_block}\n\n위 뉴스와 시그널 상태를 바탕으로 매수/HOLD/매도를 추천하라."
 
     text = _call_chat(RECOMMENDATION_SYSTEM_PROMPT, prompt)

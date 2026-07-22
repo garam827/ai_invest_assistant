@@ -230,7 +230,7 @@ def build_daily_report_html(drive_db, results: dict) -> str:
 <body>
 <div class="page-header">
 <h1>톰 바소 추세추종 일일 리포트 ({date})</h1>
-<div class="chart-legend-key">BB=볼린저밴드<br>DC20/DC100=Donchian채널(20일/100일)<br>손절선=트레일링 스탑(고점−3×ATR)</div>
+<div class="chart-legend-key">BB=볼린저밴드<br>DC20/DC100=Donchian채널(20일/100일)<br>손절선=트레일링 스탑(고점−3×ATR)<br>전환선/기준선/선행스팬A·B(구름)/후행스팬=일목균형표</div>
 </div>
 {overview_html}
 {table_html}

@@ -53,6 +53,32 @@ def calculate_bollinger_bands(
     return middle, upper, lower
 
 
+def calculate_ichimoku(
+    df: pd.DataFrame,
+    tenkan_window: int = config.ICHIMOKU_TENKAN_WINDOW,
+    kijun_window: int = config.ICHIMOKU_KIJUN_WINDOW,
+    senkou_b_window: int = config.ICHIMOKU_SENKOU_B_WINDOW,
+    displacement: int = config.ICHIMOKU_DISPLACEMENT,
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+    """Ichimoku Kinko Hyo (일목균형표): 전환선(Tenkan)/기준선(Kijun)/구름(Senkou A·B, displacement일
+    선행)/후행스팬(Chikou). Chart-only reference overlay — see get_ichimoku_confluence for the
+    advisory (never mechanical) use of the cloud position.
+
+    Also returns the pre-displacement Senkou A/B ("_raw") so chart_builder can draw the cloud's
+    future-projecting tip past the last candle, the traditional Ichimoku look.
+    """
+    tenkan = (df["High"].rolling(tenkan_window).max() + df["Low"].rolling(tenkan_window).min()) / 2
+    kijun = (df["High"].rolling(kijun_window).max() + df["Low"].rolling(kijun_window).min()) / 2
+    senkou_a_raw = (tenkan + kijun) / 2
+    senkou_b_raw = (
+        df["High"].rolling(senkou_b_window).max() + df["Low"].rolling(senkou_b_window).min()
+    ) / 2
+    senkou_a = senkou_a_raw.shift(displacement)
+    senkou_b = senkou_b_raw.shift(displacement)
+    chikou = df["Close"].shift(-displacement)
+    return tenkan, kijun, senkou_a, senkou_b, chikou, senkou_a_raw, senkou_b_raw
+
+
 def calculate_volume_surge(
     df: pd.DataFrame,
     window: int = config.VOLUME_SURGE_WINDOW,
@@ -94,6 +120,15 @@ def compute_signals(df: pd.DataFrame) -> pd.DataFrame:
     signals["Exit_Signal"] = signals["Close"] < signals["Trailing_Stop"]
     signals["Volume_Surge"] = calculate_volume_surge(signals)
     signals["BB_Middle"], signals["BB_Upper"], signals["BB_Lower"] = calculate_bollinger_bands(signals)
+    (
+        signals["Ichimoku_Tenkan"],
+        signals["Ichimoku_Kijun"],
+        signals["Ichimoku_SenkouA"],
+        signals["Ichimoku_SenkouB"],
+        signals["Ichimoku_Chikou"],
+        signals["Ichimoku_SenkouA_Raw"],
+        signals["Ichimoku_SenkouB_Raw"],
+    ) = calculate_ichimoku(signals)
 
     # First-occurrence-only versions of the breakout/exit conditions, for marking entry/exit
     # points on a chart without re-marking every subsequent day a sustained trend stays valid.
@@ -120,6 +155,10 @@ def get_latest_signal_summary(
         "trailing_stop": latest["Trailing_Stop"],
         "exit_signal": bool(latest["Exit_Signal"]),
         "volume_surge": bool(latest["Volume_Surge"]),
+        "ichimoku_tenkan": latest["Ichimoku_Tenkan"],
+        "ichimoku_kijun": latest["Ichimoku_Kijun"],
+        "ichimoku_senkou_a": latest["Ichimoku_SenkouA"],
+        "ichimoku_senkou_b": latest["Ichimoku_SenkouB"],
     }
     if equity is not None:
         summary["suggested_shares"] = calculate_position_size(equity, latest["ATR"], risk_pct)
@@ -137,6 +176,38 @@ def get_mechanical_action(summary: dict) -> str:
     if summary["exit_signal"]:
         return "매도"
     return "HOLD"
+
+
+def get_ichimoku_confluence(summary: dict, action: str) -> dict | None:
+    """Advisory-only: does today's Ichimoku cloud position agree with the mechanical
+    매수/매도 action? Purely informational context for the recommendation narrative
+    (recommendation_engine._build_rule_based_explanation / openrouter_briefing.generate_recommendation)
+    — never used to change `action` itself or the position-sizing calculation.
+
+    Returns None if the cloud isn't computable yet (insufficient history, ~78 bars needed).
+    """
+    senkou_a, senkou_b = summary.get("ichimoku_senkou_a"), summary.get("ichimoku_senkou_b")
+    if pd.isna(senkou_a) or pd.isna(senkou_b):
+        return None
+
+    cloud_top, cloud_bottom = max(senkou_a, senkou_b), min(senkou_a, senkou_b)
+    cloud_bullish = senkou_a >= senkou_b
+    price = summary["close"]
+    if price > cloud_top:
+        position = "above"
+    elif price < cloud_bottom:
+        position = "below"
+    else:
+        position = "inside"
+
+    if action == "매수":
+        agrees = position == "above" and cloud_bullish
+    elif action == "매도":
+        agrees = position == "below" and not cloud_bullish
+    else:
+        agrees = None
+
+    return {"position": position, "cloud_bullish": cloud_bullish, "agrees_with_action": agrees}
 
 
 def scan_for_signals(

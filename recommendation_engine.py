@@ -47,8 +47,26 @@ def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNE
     return age_days <= max_age_days
 
 
+def _format_ichimoku_note(ichimoku_confluence: dict | None) -> str | None:
+    """Advisory-only sentence describing whether today's Ichimoku cloud position agrees
+    with the mechanical action — never changes the action or suggested_shares, see
+    signal_engine.get_ichimoku_confluence."""
+    if ichimoku_confluence is None:
+        return None
+    position_kr = {"above": "구름 위", "below": "구름 아래", "inside": "구름 안"}[ichimoku_confluence["position"]]
+    cloud_kr = "양운(상승 구름)" if ichimoku_confluence["cloud_bullish"] else "음운(하락 구름)"
+    if ichimoku_confluence["agrees_with_action"]:
+        return f"일목균형표 상으로도 {position_kr}·{cloud_kr}로 추세와 일치합니다."
+    return f"다만 일목균형표 상으로는 {position_kr}·{cloud_kr} 상태로 추세와 엇갈려, 비중을 줄여 진입하는 것도 고려해볼 만합니다."
+
+
 def _build_rule_based_explanation(
-    ticker: str, action: str, summary: dict, news: list[dict] | None = None, reason: str = "failed"
+    ticker: str,
+    action: str,
+    summary: dict,
+    news: list[dict] | None = None,
+    reason: str = "failed",
+    ichimoku_confluence: dict | None = None,
 ) -> str:
     """Deterministic fallback explanation when the LLM isn't used — cites the exact numeric
     rule that fired, so a 매수/매도 call is never sent with no reasoning at all.
@@ -71,6 +89,9 @@ def _build_rule_based_explanation(
         f"ATR(14일): {summary['atr']:.2f} · 트레일링 스탑: {summary['trailing_stop']:.2f} · "
         f"거래량 급증: {'예' if summary['volume_surge'] else '아니오'}"
     )
+    ichimoku_note = _format_ichimoku_note(ichimoku_confluence)
+    if ichimoku_note:
+        lines.append(ichimoku_note)
     if news:
         note = "LLM 분석이 실패해 요약은 생략됨" if reason == "failed" else "LLM 분석은 비활성화되어 요약은 생략됨"
         lines.append(f"(참고: 관련 뉴스 {len(news)}건은 수집됐으나 {note})")
@@ -116,10 +137,14 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
             "date": str(summary["date"]),
         }
 
+    ichimoku_confluence = signal_engine.get_ichimoku_confluence(summary, action)
+
     news: list[dict] = []
     if config.SKIP_LLM_AND_NEWS:
         logger.info("%s: SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
-        text = _build_rule_based_explanation(ticker, action, summary, news, reason="disabled")
+        text = _build_rule_based_explanation(
+            ticker, action, summary, news, reason="disabled", ichimoku_confluence=ichimoku_confluence
+        )
         return {
             "ticker": ticker,
             "action": action,
@@ -145,7 +170,9 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
         news = []
 
     if not use_llm:
-        text = _build_rule_based_explanation(ticker, action, summary, news, reason="disabled")
+        text = _build_rule_based_explanation(
+            ticker, action, summary, news, reason="disabled", ichimoku_confluence=ichimoku_confluence
+        )
         return {
             "ticker": ticker,
             "action": action,
@@ -156,7 +183,9 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
         }
 
     try:
-        reco = openrouter_briefing.generate_recommendation(ticker, news, summary)
+        reco = openrouter_briefing.generate_recommendation(
+            ticker, news, summary, ichimoku_confluence=ichimoku_confluence
+        )
         if reco["action"] != action:
             logger.warning(
                 "%s: LLM action (%s) disagreed with mechanical rule (%s) — using the mechanical one",
@@ -167,7 +196,7 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
         text = reco["text"]
     except Exception:
         logger.exception("%s: LLM call failed for a %s signal — falling back to rule-based explanation", ticker, action)
-        text = _build_rule_based_explanation(ticker, action, summary, news)
+        text = _build_rule_based_explanation(ticker, action, summary, news, ichimoku_confluence=ichimoku_confluence)
 
     return {
         "ticker": ticker,

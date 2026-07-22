@@ -12,6 +12,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+import config
+
 # Explicit CJK-first font stack so Korean labels/legend render consistently across whatever
 # font the viewer's OS/browser defaults to, in priority order with a generic sans-serif
 # fallback last.
@@ -103,6 +105,65 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
         col=1,
     )
 
+    # Ichimoku Kinko Hyo (일목균형표) — chart-only reference overlay, see signal_engine.calculate_ichimoku.
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Ichimoku_Tenkan"], name="전환선", line=dict(color="#e67e22", width=1)),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(x=view["Date"], y=view["Ichimoku_Kijun"], name="기준선", line=dict(color="#2980b9", width=1)),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=view["Date"],
+            y=view["Ichimoku_Chikou"],
+            name="후행스팬",
+            line=dict(color="#8e44ad", width=1, dash="dot"),
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Cloud (Senkou A/B) drawn the traditional way — extended `displacement` business days past
+    # the last candle. Senkou_A/B columns are already displaced (shift(+displacement)) so they
+    # cover the historical portion; the tail of the "_Raw" (undisplaced) columns supplies the
+    # future-projecting tip, continuing the same series with no gap (see calculate_ichimoku).
+    displacement = config.ICHIMOKU_DISPLACEMENT
+    if len(view) > displacement:
+        future_dates = pd.bdate_range(start=view["Date"].max() + pd.Timedelta(days=1), periods=displacement)
+        cloud_dates = pd.concat([view["Date"], pd.Series(future_dates)], ignore_index=True)
+        cloud_a = pd.concat(
+            [view["Ichimoku_SenkouA"], view["Ichimoku_SenkouA_Raw"].iloc[-displacement:].reset_index(drop=True)],
+            ignore_index=True,
+        )
+        cloud_b = pd.concat(
+            [view["Ichimoku_SenkouB"], view["Ichimoku_SenkouB_Raw"].iloc[-displacement:].reset_index(drop=True)],
+            ignore_index=True,
+        )
+    else:
+        cloud_dates, cloud_a, cloud_b = view["Date"], view["Ichimoku_SenkouA"], view["Ichimoku_SenkouB"]
+
+    fig.add_trace(
+        go.Scatter(x=cloud_dates, y=cloud_a, name="선행스팬A", line=dict(color="rgba(46,204,113,0.6)", width=1)),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=cloud_dates,
+            y=cloud_b,
+            name="선행스팬B",
+            line=dict(color="rgba(231,76,60,0.6)", width=1),
+            fill="tonexty",
+            fillcolor="rgba(149,165,166,0.18)",
+        ),
+        row=1,
+        col=1,
+    )
+
     buy_points = view[view["Buy_Trigger"]]
     fig.add_trace(
         go.Scatter(
@@ -140,7 +201,7 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
         template="plotly_white",
         font=dict(family=FONT_FAMILY),
         legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02, bgcolor="rgba(0,0,0,0)"),
-        margin=dict(t=60, b=20, r=110, l=40),
+        margin=dict(t=60, b=20, r=120, l=40),
     )
     fig.update_xaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
     fig.update_yaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")

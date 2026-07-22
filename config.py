@@ -44,6 +44,13 @@ VOLUME_SURGE_MULTIPLIER = float(os.environ.get("VOLUME_SURGE_MULTIPLIER", "1.5")
 BOLLINGER_WINDOW = int(os.environ.get("BOLLINGER_WINDOW", "20"))
 BOLLINGER_NUM_STD = float(os.environ.get("BOLLINGER_NUM_STD", "2"))
 
+# Ichimoku Kinko Hyo (chart-only reference overlay + advisory confluence note — never part
+# of the Basso Donchian/ATR entry/exit rules or position sizing, see signal_engine.get_ichimoku_confluence)
+ICHIMOKU_TENKAN_WINDOW = int(os.environ.get("ICHIMOKU_TENKAN_WINDOW", "9"))
+ICHIMOKU_KIJUN_WINDOW = int(os.environ.get("ICHIMOKU_KIJUN_WINDOW", "26"))
+ICHIMOKU_SENKOU_B_WINDOW = int(os.environ.get("ICHIMOKU_SENKOU_B_WINDOW", "52"))
+ICHIMOKU_DISPLACEMENT = int(os.environ.get("ICHIMOKU_DISPLACEMENT", "26"))
+
 # News collection (Exa search API — see https://exa.ai)
 NEWS_MAX_ITEMS_PER_TICKER = int(os.environ.get("NEWS_MAX_ITEMS_PER_TICKER", "5"))
 EXA_API_KEY = os.environ.get("EXA_API_KEY")
