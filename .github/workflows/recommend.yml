@@ -67,4 +67,9 @@ jobs:
           else
             git diff --cached --quiet || git commit -m "Add daily report $(date -u +%Y-%m-%d)"
           fi
-          git push
+          # --- 수정 및 추가 부분 시작 ---  
+          # 원격 저장소의 최신 변경사항을 가져와 내 커밋 위에 재배치(rebase)합니다.  
+          # 이렇게 하면 'rejected' 에러를 방지하고 커밋 히스토리를 깔끔하게 유지할 수 있습니다.  
+          git pull --rebase origin master   
+          git push  
+          # --- 수정 및 추가 부분 끝 --- 
