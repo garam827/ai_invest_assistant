@@ -237,13 +237,18 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         # per-ticker work already done — the caller still gets the in-memory results.
         logger.exception("Failed to persist recommendations to Drive (results still returned)")
 
+    # A manual/sample publish (config.IS_TEST_REPORT) gets its own filename via a "_test"
+    # suffix on the report date — never the recommendations JSON's date above — so re-running
+    # the workflow to check the report/Telegram plumbing can't clobber that day's real report.
+    report_date = f"{date}_test" if config.IS_TEST_REPORT else date
+
     report_url = None
     if results:
         try:
             report_html = report_builder.build_daily_report_html(drive_db, results)
-            report_builder.save_report(drive_db, date, report_html)
-            report_url = f"{config.REPORT_BASE_URL}/{date}.html"
-            logger.info("Saved daily report for %s", date)
+            report_builder.save_report(drive_db, report_date, report_html)
+            report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
+            logger.info("Saved daily report for %s", report_date)
         except Exception:
             # A failed report build must never take down the recommendation batch or the
             # Telegram summary — same "never drop what already succeeded" principle as the

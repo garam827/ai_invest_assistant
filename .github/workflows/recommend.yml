@@ -15,6 +15,10 @@ on:
         description: "Exa 뉴스/OpenRouter LLM 호출 생략(규칙 기반 설명으로 대체) — 파이프라인/리포트/텔레그램 배관만 확인할 때 API 사용량 절약"
         type: boolean
         default: true
+      is_test:
+        description: "테스트/샘플 리포트 발행 — 켜져 있으면 리포트 파일명 끝에 _test 접미어를 붙여 그날의 실제 리포트를 덮어쓰지 않음"
+        type: boolean
+        default: true
 
 jobs:
   recommend:
@@ -32,6 +36,7 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       SKIP_LLM_AND_NEWS: ${{ github.event.inputs.skip_llm_and_news }}
+      IS_TEST_REPORT: ${{ github.event.inputs.is_test }}
     steps:
       - uses: actions/checkout@v4
 
@@ -57,5 +62,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/reports
-          git diff --cached --quiet || git commit -m "Add daily report $(date -u +%Y-%m-%d)"
+          if [ "${IS_TEST_REPORT}" = "true" ]; then
+            git diff --cached --quiet || git commit -m "Add test report $(date -u +%Y-%m-%d)"
+          else
+            git diff --cached --quiet || git commit -m "Add daily report $(date -u +%Y-%m-%d)"
+          fi
           git push

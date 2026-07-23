@@ -76,6 +76,13 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 # actually being checked. Never set for the real workflow_run-triggered (scheduled) path.
 SKIP_LLM_AND_NEWS = os.environ.get("SKIP_LLM_AND_NEWS", "false").lower() == "true"
 
+# Manual-test escape hatch (recommend.yml's workflow_dispatch input, default true there): when
+# set, recommendation_engine.run_asset_class_recommendations appends "_test" to the report's
+# filename (both Drive's _report_{date}.html and the local docs/reports/{date}.html) so a manual
+# sample/test publish never overwrites that day's real scheduled report. Never set for the real
+# workflow_run-triggered (scheduled) path, so production reports keep their plain date filename.
+IS_TEST_REPORT = os.environ.get("IS_TEST_REPORT", "false").lower() == "true"
+
 # Public GitHub Pages base URL where report_builder's daily HTML report is published
 # (recommend.yml commits docs/reports/{date}.html, GitHub Pages serves the docs/ folder).
 # telegram_notifier links here instead of attaching every ticker's chart individually.

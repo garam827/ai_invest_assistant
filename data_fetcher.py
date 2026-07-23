@@ -107,6 +107,12 @@ ASSET_CLASS_TICKERS = {
         "description": "구리 선물 가격을 추종하는 ETF (경기 선행지표로도 참고됨)",
         "news_query": "copper price outlook macro analysis",
     },
+    "UUP": {
+        "label": "미국 달러 인덱스 (US Dollar Index)",
+        "category": "통화",
+        "description": "주요 6개국 통화 대비 미국 달러 강세를 추종하는 ETF",
+        "news_query": "US dollar index DXY outlook macro analysis",
+    },
 }
 
 
