@@ -46,6 +46,14 @@ def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
 
 
+def _recent_signal_history(history: dict, days: int = 30) -> dict:
+    """Slice to the last `days` calendar days — used for the daily report's embedded signal
+    history table (report_builder._build_signal_history_html), which shouldn't grow forever
+    the way the Streamlit report-history tab's full-history view does."""
+    cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)).date().isoformat()
+    return {date: actions for date, actions in history.items() if date >= cutoff}
+
+
 def _actions_from_results(results: dict) -> dict[str, str]:
     return {ticker: reco["action"] for ticker, reco in results.items()}
 
@@ -302,10 +310,20 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         logger.exception("Failed to load paper trading positions (report/Telegram will omit this section)")
         open_positions = []
 
+    # Recent signal history (최근 30일) for the report's own reference table — Drive-only,
+    # never reaches the LLM/news calls above. A failure here must not block the report either.
+    try:
+        recent_history = _recent_signal_history(load_signal_history(drive_db))
+    except Exception:
+        logger.exception("Failed to load signal history (report will omit this section)")
+        recent_history = {}
+
     report_url = None
     if results:
         try:
-            report_html = report_builder.build_daily_report_html(drive_db, results, paper_positions=open_positions)
+            report_html = report_builder.build_daily_report_html(
+                drive_db, results, paper_positions=open_positions, signal_history=recent_history
+            )
             report_builder.save_report(drive_db, report_date, report_html)
             # A test publish is never committed to docs/reports (see report_builder.save_report),
             # so it never actually reaches GitHub Pages — don't hand out a URL that 404s.

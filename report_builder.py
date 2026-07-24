@@ -141,6 +141,38 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
 
 
+ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
+
+
+def _build_signal_history_html(signal_history: dict) -> str:
+    """signal_history: {date: {ticker: action}}, already sliced to the desired window by
+    the caller (recommendation_engine._recent_signal_history) — this function doesn't do
+    its own date math. Empty -> "" (section omitted, same principle as the other optional
+    sections above)."""
+    if not signal_history:
+        return ""
+
+    tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
+    dates = sorted(signal_history, reverse=True)
+    header = "".join(f"<th>{_esc(t)}</th>" for t in tickers)
+    rows = []
+    for date in dates:
+        day_actions = signal_history[date]
+        cells = []
+        for ticker in tickers:
+            action = day_actions.get(ticker)
+            letter = ACTION_SHORT.get(action, "-")
+            color = ACTION_COLOR.get(action, "#999")
+            cells.append(f"<td style='color:{color};font-weight:bold'>{letter}</td>")
+        rows.append(f"<tr><td>{_esc(date)}</td>{''.join(cells)}</tr>")
+    table = (
+        "<table class='summary'><thead><tr>"
+        f"<th>날짜</th>{header}"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+    return f"<h2>최근 시그널 이력</h2>{table}"
+
+
 def _build_chart_html(drive_db, ticker: str, include_plotlyjs) -> str | None:
     raw_df = drive_db.load_ticker(ticker)
     if raw_df is None or raw_df.empty:
@@ -240,12 +272,23 @@ def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]
     return f"<details><summary>📊 HOLD 종목 차트 보기 ({len(blocks)}개, 참고용)</summary>{''.join(blocks)}</details>"
 
 
-def build_daily_report_html(drive_db, results: dict, paper_positions: list[dict] | None = None) -> str:
+def build_daily_report_html(
+    drive_db,
+    results: dict,
+    paper_positions: list[dict] | None = None,
+    signal_history: dict | None = None,
+) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
 
     `paper_positions` (paper_trading.compute_position_returns' output, open positions only)
     is optional so existing callers/tests are unaffected — omitted entirely from the report
     if not given or empty (see _build_paper_trading_html).
+
+    `signal_history` ({date: {ticker: action}}, already windowed by the caller — see
+    recommendation_engine._recent_signal_history) is likewise optional, omitted if empty
+    (see _build_signal_history_html). report_builder.py can't import recommendation_engine
+    itself (recommendation_engine already imports report_builder — a back-import would be
+    circular), so the caller always loads and passes this in, same as paper_positions.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
@@ -259,6 +302,7 @@ def build_daily_report_html(drive_db, results: dict, paper_positions: list[dict]
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     table_html = _build_summary_table_html(results)
     paper_html = _build_paper_trading_html(paper_positions or [])
+    history_html = _build_signal_history_html(signal_history or {})
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
@@ -279,6 +323,7 @@ def build_daily_report_html(drive_db, results: dict, paper_positions: list[dict]
 </div>
 {overview_html}
 {table_html}
+{history_html}
 {paper_html}
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
