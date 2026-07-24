@@ -212,7 +212,8 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
 def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = None) -> dict:
     """Run get_recommendation_for_ticker for each representative asset-class ticker
     (data_fetcher.ASSET_CLASS_TICKERS by default — NOT the full S&P 500 universe), and
-    persist the day's results to Drive as `_recommendations_{date}.json`.
+    persist the day's results to Drive as `_recommendations_{date}.json` (or
+    `_recommendations_{date}_test.json` when config.IS_TEST_REPORT is set — see below).
     """
     tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
     logger.info("Starting asset-class recommendations for %d tickers", len(tickers))
@@ -230,18 +231,21 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
             logger.exception("Failed to generate recommendation for %s", ticker)
 
     date = datetime.date.today().isoformat()
+    # A manual/sample publish (config.IS_TEST_REPORT) gets its own filename via a "_test"
+    # suffix — applied to both the recommendations JSON and the report below — so re-running
+    # the workflow to check the pipeline/report/Telegram plumbing can't clobber that day's
+    # real recommendations archive or report.
+    file_date = f"{date}_test" if config.IS_TEST_REPORT else date
+
     try:
-        drive_db.save_json(f"{RECOMMENDATIONS_FILENAME_PREFIX}{date}.json", results)
-        logger.info("Saved %d recommendations to _recommendations_%s.json", len(results), date)
+        drive_db.save_json(f"{RECOMMENDATIONS_FILENAME_PREFIX}{file_date}.json", results)
+        logger.info("Saved %d recommendations to _recommendations_%s.json", len(results), file_date)
     except Exception:
         # Don't let a transient Drive/network failure on the final save discard the
         # per-ticker work already done — the caller still gets the in-memory results.
         logger.exception("Failed to persist recommendations to Drive (results still returned)")
 
-    # A manual/sample publish (config.IS_TEST_REPORT) gets its own filename via a "_test"
-    # suffix on the report date — never the recommendations JSON's date above — so re-running
-    # the workflow to check the report/Telegram plumbing can't clobber that day's real report.
-    report_date = f"{date}_test" if config.IS_TEST_REPORT else date
+    report_date = file_date
 
     # Paper trading (모의 투자) positions — recorded only via the Streamlit UI, never by this
     # cron path — are read-only here so the day's report/Telegram summary can include them.
