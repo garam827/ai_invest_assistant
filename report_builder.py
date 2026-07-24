@@ -119,19 +119,21 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
             pnl_class = "pnl-positive" if p["unrealized_pnl"] >= 0 else "pnl-negative"
             current_cell = f"{p['current_price']:.2f}"
             pnl_cell = f"<span class='{pnl_class}'>{p['unrealized_pnl']:+.2f} ({p['unrealized_pnl_pct']:+.2f}%)</span>"
+        recorded_date = p["created_at"][:10]  # ISO timestamp -> date only, e.g. "2026-07-23"
         rows.append(
             "<tr>"
             f"<td>{_esc(p['ticker'])}</td>"
             f"<td>{_esc(p['entry_date'])}</td>"
             f"<td>{p['entry_price']:.2f}</td>"
             f"<td>{p['quantity']}</td>"
+            f"<td>{_esc(recorded_date)}</td>"
             f"<td>{current_cell}</td>"
             f"<td>{pnl_cell}</td>"
             "</tr>"
         )
     table = (
         "<table class='summary'><thead><tr>"
-        "<th>티커</th><th>매수일</th><th>매수가</th><th>수량</th><th>현재가</th><th>미실현손익</th>"
+        "<th>티커</th><th>매수일</th><th>매수가</th><th>수량</th><th>설정일</th><th>현재가</th><th>미실현손익</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"

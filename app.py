@@ -503,7 +503,7 @@ with tab_paper:
     else:
         for position in paper_open_positions:
             with st.container(border=True):
-                cols = st.columns([1.5, 1, 1, 1, 1, 1.5])
+                cols = st.columns([1.3, 1, 1, 0.8, 1, 1.3, 1])
                 cols[0].markdown(f"**{position['ticker']}**")
                 cols[1].caption(f"매수일: {position['entry_date']}")
                 cols[2].caption(f"매수가: {position['entry_price']:.2f}")
@@ -517,6 +517,9 @@ with tab_paper:
                 else:
                     cols[4].caption("현재가: N/A")
                     cols[5].caption("손익: N/A")
+                # created_at은 ISO 타임스탬프(예: "2026-07-23T09:12:00+00:00") — 이 포지션을
+                # "언제 설정했는지"(entry_date와 별개로, 과거 날짜로 소급 입력했을 수 있음)를 보여준다.
+                cols[6].caption(f"설정일: {position['created_at'][:10]}")
 
                 with st.form(f"close_form_{position['id']}"):
                     close_cols = st.columns([1, 1, 1])
@@ -560,6 +563,7 @@ with tab_paper:
                         "청산일": p["exit_date"],
                         "청산가": p["exit_price"],
                         "수량": p["quantity"],
+                        "설정일": p["created_at"][:10],
                         "실현손익": p["realized_pnl"],
                         "실현손익%": p["realized_pnl_pct"],
                     }
