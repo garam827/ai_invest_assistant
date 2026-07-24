@@ -408,7 +408,9 @@ with tab_collect:
 # 제한 없는 넓은 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지
 # 스크롤과 iframe 내부 스크롤이 겹쳐 가독성이 나빠졌다. Drive에는 저장됐지만 그 뒤 git
 # 커밋+푸시 단계가 실패해 GitHub Pages에는 아직 없는 경우를 대비해, Drive에서 읽은 HTML을
-# 그대로 다운로드할 수 있는 보조 버튼도 함께 둔다.
+# 그대로 다운로드할 수 있는 보조 버튼도 함께 둔다. 날짜 선택은 드롭다운(selectbox)보다
+# 한눈에 훑어보기 편하도록 세로 목록(radio, v3.25)으로 표시하고, 수동/샘플 테스트 발행
+# ("_test" 접미어)은 report_builder.list_report_dates에서 이미 걸러져 목록에 안 나온다.
 # ---------------------------------------------------------------------------
 with tab_report:
     st.header("일일 리포트 히스토리")
@@ -417,7 +419,7 @@ with tab_report:
     if not report_dates:
         st.info("아직 저장된 리포트가 없습니다. 크론(recommend.yml)이 최소 한 번 실행된 뒤 표시됩니다.")
     else:
-        selected_date = st.selectbox("날짜 선택", report_dates, key="report_date_select")
+        selected_date = st.radio("날짜 선택", report_dates, key="report_date_select")
         report_html = get_report_html(selected_date)
         if report_html is None:
             st.warning(f"{selected_date} 리포트를 불러오지 못했습니다.")

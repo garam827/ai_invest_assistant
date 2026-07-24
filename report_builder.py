@@ -297,9 +297,12 @@ def save_report(drive_db, date: str, report_html: str) -> None:
 
 
 def list_report_dates(drive_db) -> list[str]:
-    """Dates (YYYY-MM-DD, newest first) with a saved report in Drive."""
+    """Dates (YYYY-MM-DD, newest first) with a saved *real* report in Drive — manual/sample
+    test publishes (config.IS_TEST_REPORT, "{date}_test") are excluded so the Streamlit
+    history list only ever shows genuine daily reports."""
     filenames = drive_db.list_filenames(REPORT_FILENAME_PREFIX)
     dates = [f.removeprefix(REPORT_FILENAME_PREFIX).removesuffix(".html") for f in filenames]
+    dates = [d for d in dates if not d.endswith("_test")]
     return sorted(dates, reverse=True)
 
 
