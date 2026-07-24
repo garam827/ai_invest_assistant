@@ -409,18 +409,19 @@ with tab_collect:
 
 # ---------------------------------------------------------------------------
 # 탭 4: 리포트 히스토리 — 크론(recommend.yml)이 report_builder로 만들어 Drive에 저장한
-# 날짜별 일일 리포트 이력을 한 줄에 하나씩(v3.26, st.container(border=True) 카드) 보여준다:
-# 날짜 + 자산군별 그날의 액션(매수/HOLD/매도, 색상+약자) + 링크/다운로드. 액션은 날짜별
+# 날짜별 일일 리포트 이력을 하나의 st.dataframe으로 보여준다(v3.29, st.container 카드
+# 나열에서 교체 — 전체 데이터셋이 이미 메모리에 있으니 표 위젯 하나로 정렬/스크롤까지
+# 기본 지원받는 게 더 간단하다). 링크 컬럼은 st.column_config.LinkColumn으로 GitHub
+# Pages URL을 클릭 가능한 링크로 렌더링(파일명만 표시). 액션은 날짜별
 # _recommendations_{date}.json을 하나씩 읽는 대신, recommendation_engine이 매일 실제(비-테스트)
 # 발행 때마다 갱신해 두는 가벼운 누적 파일 _signal_history.json을 통째로 한 번만 읽어서 채운다
-# (v3.28 — Drive 읽기 횟수를 날짜 수만큼에서 1번으로 줄이고, LLM 텍스트/뉴스처럼 필요 없는
-# 데이터까지 매번 읽어오지 않게 함). 리포트 본문 자체는
-# GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일 스크롤로 보게 한다(v3.24) —
-# iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤 max-width 제한 없는 넓은
-# 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지 스크롤과 iframe
-# 내부 스크롤이 겹쳐 가독성이 나빠졌다. Drive에는 저장됐지만 그 뒤 git 커밋+푸시 단계가
-# 실패해 GitHub Pages에는 아직 없는 경우를 대비해, Drive에서 읽은 HTML을 그대로 다운로드할
-# 수 있는 버튼도 행마다 둔다. 수동/샘플 테스트 발행("_test" 접미어)은
+# (v3.28). 리포트 본문 자체는 GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일
+# 스크롤로 보게 한다(v3.24) — iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤
+# max-width 제한 없는 넓은 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고,
+# 바깥 페이지 스크롤과 iframe 내부 스크롤이 겹쳐 가독성이 나빠졌다. "다운로드"는
+# st.download_button이 데이터프레임 셀 안에 들어갈 수 없어(지원되는 컬럼 타입이 아님)
+# 표 아래 별도의 작은 st.form(날짜 선택 + 준비 버튼 한 줄)으로 분리했다(v3.29) — Drive에는
+# 저장됐지만 GitHub Pages에는 아직 없는 경우의 폴백. 수동/샘플 테스트 발행("_test" 접미어)은
 # report_builder.list_report_dates에서 이미 걸러져 목록에 안 나온다(v3.25).
 # ---------------------------------------------------------------------------
 with tab_report:
@@ -432,47 +433,49 @@ with tab_report:
     else:
         report_tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
         ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
-        ACTION_ROW_COLOR = {"매수": "green", "HOLD": "gray", "매도": "red"}
-        row_widths = [1.1] + [0.6] * len(report_tickers) + [0.9, 0.9]
-
-        header_cols = st.columns(row_widths)
-        header_cols[0].markdown("**날짜**")
-        for i, ticker in enumerate(report_tickers):
-            header_cols[1 + i].markdown(f"**{ticker}**")
-        header_cols[-2].markdown("**링크**")
-        header_cols[-1].markdown("**다운로드**")
+        ACTION_CELL_STYLE = {"B": "color: green", "H": "color: gray", "S": "color: red"}
 
         signal_history = get_signal_history()
-
+        history_rows = []
         for report_date in report_dates:
-            with st.container(border=True):
-                cols = st.columns(row_widths)
-                cols[0].write(report_date)
+            day_actions = signal_history.get(report_date, {})
+            row = {"날짜": report_date}
+            for ticker in report_tickers:
+                row[ticker] = ACTION_SHORT.get(day_actions.get(ticker), "-")
+            row["링크"] = f"{config.REPORT_BASE_URL}/{report_date}.html"
+            history_rows.append(row)
 
-                day_actions = signal_history.get(report_date, {})
-                for i, ticker in enumerate(report_tickers):
-                    action = day_actions.get(ticker)
-                    if action is None:
-                        cols[1 + i].caption("-")
-                    else:
-                        letter = ACTION_SHORT.get(action, "?")
-                        color = ACTION_ROW_COLOR.get(action, "gray")
-                        cols[1 + i].markdown(f":{color}[**{letter}**]")
+        history_df = pd.DataFrame(history_rows)
+        styled_history_df = history_df.style.map(
+            lambda v: ACTION_CELL_STYLE.get(v, ""), subset=report_tickers
+        )
+        st.dataframe(
+            styled_history_df,
+            hide_index=True,
+            width="stretch",
+            column_config={"링크": st.column_config.LinkColumn("링크", display_text=r"([^/]+)$")},
+        )
+        st.caption("B=매수 · H=HOLD · S=매도")
 
-                report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
-                cols[-2].link_button("보기", report_url, key=f"report_link_{report_date}")
+        with st.form("report_download_form"):
+            dl_cols = st.columns([3, 1])
+            download_date = dl_cols[0].selectbox(
+                "다운로드할 날짜", report_dates, key="report_download_date", label_visibility="collapsed"
+            )
+            download_submitted = dl_cols[1].form_submit_button("준비", width="stretch")
 
-                report_html = get_report_html(report_date)
-                if report_html is not None:
-                    cols[-1].download_button(
-                        "받기",
-                        data=report_html,
-                        file_name=f"{report_date}.html",
-                        mime="text/html",
-                        key=f"report_download_{report_date}",
-                    )
-                else:
-                    cols[-1].caption("N/A")
+        if download_submitted:
+            report_html = get_report_html(download_date)
+            if report_html is None:
+                st.warning(f"{download_date} 리포트를 불러오지 못했습니다.")
+            else:
+                st.download_button(
+                    f"{download_date}.html 다운로드",
+                    data=report_html,
+                    file_name=f"{download_date}.html",
+                    mime="text/html",
+                    key="report_download_button",
+                )
 
 # ---------------------------------------------------------------------------
 # 탭 5: 모의 투자 — 사용자가 직접 기록하는 가상의 매수 포지션과 그 손익 추적.
