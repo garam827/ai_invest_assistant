@@ -36,11 +36,11 @@ STYLE = """
   .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; }
   .chart-legend-key { font-size: 0.75rem; color: #888; text-align: right; max-width: 340px; line-height: 1.4; }
   .chart-frame { border: 1px solid #ddd; border-radius: 6px; padding: 0.8rem; margin: 0.8rem 0; }
-  /* 교차 자산 총평(.overview)만 가독성을 위해 읽기 편한 폭으로 제한 — 표·차트·뉴스 그리드·
-     개별 종목 LLM 분석(.analysis)은 제한 없이 컨테이너(위 body) 전체 폭을 그대로 쓴다
-     (.analysis는 v3.30까지는 .overview와 같은 900px 제한이 있었으나, 종목별 분석 텍스트가
-     상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴다). */
-  .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; max-width: 900px; }
+  /* 본문 문단은 표·차트·뉴스 그리드와 마찬가지로 컨테이너(위 body) 전체 폭을 그대로 쓴다.
+     원래는 긴 글줄 가독성을 위해 .overview/.analysis 모두 900px로 제한했었으나, 종목별
+     분석(.analysis)이 상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴고,
+     교차 자산 총평(.overview)도 같은 이유로 v3.33에서 제한을 없앴다. */
+  .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
   table.summary { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.8rem; }
   table.summary th, table.summary td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
   table.summary th { background: #f5f5f5; }
