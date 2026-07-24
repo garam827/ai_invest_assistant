@@ -7,12 +7,15 @@ Tab 3 — 종목 차트 (S&P 500): 개별 종목 차트.
 Tab 4 — 데이터 적재: S&P 500 유니버스 동기화 + 전 종목/자산군 시세 갱신을 한 번에 실행.
 Tab 5 — 리포트 히스토리: 크론이 report_builder로 만들어 Drive에 저장한 날짜별 일일 리포트(전 종목
 차트 + LLM 종합 해설)를 그대로 다시 렌더링.
+Tab 6 — 모의 투자: 사용자가 직접 기록하는 가상의 매수/매도 포지션과 그 손익을 추적 (paper_trading.py,
+paper_trading_spec.md 참고). 크론이 아니라 이 UI에서만 포지션을 열고 닫는다.
 
 두 차트 탭(2, 3) 모두 같은 render_ticker_chart를 공유한다: 캔들+지표 오버레이,
 과거 매수/청산 시그널 발생일 마커, 그리고 뉴스+시그널 상태 기반 LLM 매매 추천.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 
 import pandas as pd
@@ -21,6 +24,7 @@ import streamlit as st
 import chart_builder
 import config
 import data_fetcher
+import paper_trading
 import recommendation_engine
 import report_builder
 import signal_engine
@@ -119,6 +123,14 @@ def get_report_html(date: str) -> str | None:
     return report_builder.load_report(get_drive_db(), date)
 
 
+@st.cache_data(ttl=300, show_spinner="포지션 불러오는 중...")
+def get_paper_positions() -> list[dict]:
+    """Short TTL since positions can change within a session — any open/close action also
+    calls .clear() right after the Drive write succeeds (see the 모의 투자 tab below)."""
+    db = get_drive_db()
+    return paper_trading.compute_position_returns(db, paper_trading.load_positions(db))
+
+
 class _StreamlitLogHandler(logging.Handler):
     """Streams log records into a Streamlit code block, throttled to avoid excessive redraws."""
 
@@ -209,8 +221,8 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
         st.error(f"LLM 분석 실패: {e}")
 
 
-tab_intro, tab_asset, tab_sp500, tab_collect, tab_report = st.tabs(
-    ["소개", "대표 자산군 분석", "종목 차트 (S&P 500)", "데이터 적재", "리포트 히스토리"]
+tab_intro, tab_asset, tab_sp500, tab_collect, tab_report, tab_paper = st.tabs(
+    ["소개", "대표 자산군 분석", "종목 차트 (S&P 500)", "데이터 적재", "리포트 히스토리", "모의 투자"]
 )
 
 # ---------------------------------------------------------------------------
@@ -407,3 +419,151 @@ with tab_report:
         else:
             # 넉넉하게: 자산군 10종목 차트(각 ~950px)까지 스크롤 없이 최대한 담기게 함.
             st.iframe(report_html, height=9500)
+
+# ---------------------------------------------------------------------------
+# 탭 5: 모의 투자 — 사용자가 직접 기록하는 가상의 매수 포지션과 그 손익 추적.
+# 크론이 아니라 이 UI에서만 포지션을 열고 닫는다 (paper_trading_spec.md 참고).
+# ---------------------------------------------------------------------------
+with tab_paper:
+    st.header("모의 투자 (Paper Trading)")
+    st.caption("특정 종목을 특정일 종가에 매수했다고 가정하고, 그 포지션의 손익을 자동으로 추적합니다.")
+
+    st.subheader("새 포지션 추가")
+    paper_ticker_group = st.radio(
+        "종목 유형", ["대표 자산군", "S&P 500 개별종목"], key="paper_ticker_group", horizontal=True
+    )
+
+    if paper_ticker_group == "대표 자산군":
+        paper_categories = sorted({info["category"] for info in data_fetcher.ASSET_CLASS_TICKERS.values()})
+        paper_category = st.selectbox("자산군 카테고리", paper_categories, key="paper_category_select")
+        paper_candidates = [
+            (ticker, info["label"])
+            for ticker, info in data_fetcher.ASSET_CLASS_TICKERS.items()
+            if info["category"] == paper_category
+        ]
+    else:
+        paper_universe = get_universe()
+        paper_sector_map = paper_universe["sectors"]
+        paper_sector_options = (
+            [ALL_SECTORS_LABEL] + sorted(set(paper_sector_map.values())) if paper_sector_map else [ALL_SECTORS_LABEL]
+        )
+        paper_sector = st.selectbox("섹터/테마", paper_sector_options, key="paper_sector_select")
+        paper_filtered_tickers = (
+            paper_universe["tickers"]
+            if paper_sector == ALL_SECTORS_LABEL
+            else [t for t in paper_universe["tickers"] if paper_sector_map.get(t) == paper_sector]
+        )
+        paper_candidates = [(t, t) for t in paper_filtered_tickers]
+
+    paper_label_to_ticker = {label: ticker for ticker, label in paper_candidates}
+    if not paper_label_to_ticker:
+        st.warning("선택 가능한 종목이 없습니다.")
+    else:
+        paper_label = st.selectbox(
+            f"종목 선택 ({len(paper_label_to_ticker)}개)", list(paper_label_to_ticker), key="paper_ticker_select"
+        )
+        paper_ticker = paper_label_to_ticker[paper_label]
+        paper_entry_date = st.date_input("매수일", value=datetime.date.today(), key="paper_entry_date")
+
+        suggested_price = paper_trading.preview_price(get_drive_db(), paper_ticker, str(paper_entry_date))
+        if suggested_price is not None:
+            st.info(f"제안 체결가 ({paper_entry_date} 기준 종가): {suggested_price:.2f}")
+        else:
+            st.warning(f"{paper_ticker}의 {paper_entry_date} 이전 시세 데이터가 없습니다. '데이터 적재' 탭에서 먼저 수집해주세요.")
+
+        with st.form("paper_open_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                paper_price_input = st.number_input(
+                    "체결가", value=float(suggested_price) if suggested_price is not None else 0.0, min_value=0.0, step=0.01
+                )
+            with col2:
+                paper_qty_input = st.number_input("수량", min_value=1, step=1, value=1)
+            paper_open_submitted = st.form_submit_button("포지션 추가", type="primary")
+
+        if paper_open_submitted:
+            if paper_price_input <= 0:
+                st.error("체결가를 확인할 수 없어 포지션을 추가하지 못했습니다.")
+            else:
+                paper_trading.open_position(
+                    get_drive_db(), paper_ticker, str(paper_entry_date), paper_qty_input, entry_price=paper_price_input
+                )
+                get_paper_positions.clear()
+                st.success(f"{paper_ticker} {paper_qty_input}주 매수 포지션을 추가했습니다.")
+                st.rerun()
+
+    st.divider()
+    st.subheader("보유 중인 포지션")
+    paper_all_positions = get_paper_positions()
+    paper_open_positions = [p for p in paper_all_positions if p["status"] == "open"]
+    paper_closed_positions = [p for p in paper_all_positions if p["status"] == "closed"]
+
+    if not paper_open_positions:
+        st.info("보유 중인 모의 투자 포지션이 없습니다.")
+    else:
+        for position in paper_open_positions:
+            with st.container(border=True):
+                cols = st.columns([1.5, 1, 1, 1, 1, 1.5])
+                cols[0].markdown(f"**{position['ticker']}**")
+                cols[1].caption(f"매수일: {position['entry_date']}")
+                cols[2].caption(f"매수가: {position['entry_price']:.2f}")
+                cols[3].caption(f"수량: {position['quantity']}")
+                if position["current_price"] is not None:
+                    cols[4].caption(f"현재가: {position['current_price']:.2f}")
+                    pnl_color = "green" if position["unrealized_pnl"] >= 0 else "red"
+                    cols[5].markdown(
+                        f":{pnl_color}[{position['unrealized_pnl']:+.2f} ({position['unrealized_pnl_pct']:+.2f}%)]"
+                    )
+                else:
+                    cols[4].caption("현재가: N/A")
+                    cols[5].caption("손익: N/A")
+
+                with st.form(f"close_form_{position['id']}"):
+                    close_cols = st.columns([1, 1, 1])
+                    with close_cols[0]:
+                        exit_date_input = st.date_input(
+                            "청산일", value=datetime.date.today(), key=f"exit_date_{position['id']}"
+                        )
+                    with close_cols[1]:
+                        default_exit_price = (
+                            position["current_price"] if position["current_price"] is not None else position["entry_price"]
+                        )
+                        exit_price_input = st.number_input(
+                            "청산가",
+                            value=float(default_exit_price),
+                            min_value=0.0,
+                            step=0.01,
+                            key=f"exit_price_{position['id']}",
+                        )
+                    with close_cols[2]:
+                        st.write("")
+                        close_submitted = st.form_submit_button("청산", width="stretch")
+
+                if close_submitted:
+                    paper_trading.close_position(
+                        get_drive_db(), position["id"], exit_date=str(exit_date_input), exit_price=exit_price_input
+                    )
+                    get_paper_positions.clear()
+                    st.success(f"{position['ticker']} 포지션을 청산했습니다.")
+                    st.rerun()
+
+    with st.expander(f"청산 내역 ({len(paper_closed_positions)}건)"):
+        if not paper_closed_positions:
+            st.caption("청산된 포지션이 없습니다.")
+        else:
+            closed_df = pd.DataFrame(
+                [
+                    {
+                        "티커": p["ticker"],
+                        "매수일": p["entry_date"],
+                        "매수가": p["entry_price"],
+                        "청산일": p["exit_date"],
+                        "청산가": p["exit_price"],
+                        "수량": p["quantity"],
+                        "실현손익": p["realized_pnl"],
+                        "실현손익%": p["realized_pnl_pct"],
+                    }
+                    for p in paper_closed_positions
+                ]
+            )
+            st.dataframe(closed_df, width="stretch", hide_index=True)

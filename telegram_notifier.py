@@ -51,11 +51,27 @@ def _pad(text: str, width: int) -> str:
     return text + " " * max(0, width - _display_width(text))
 
 
-def format_summary(results: dict, report_url: str | None = None) -> str:
+def _format_table(headers: list[str], rows: list[list[str]]) -> list[str]:
+    """Padded monospace table lines (header + separator + rows) — shared by the main
+    action summary table and the paper-trading positions table below."""
+    col_widths = [
+        max([_display_width(headers[i])] + [_display_width(row[i]) for row in rows]) for i in range(len(headers))
+    ]
+
+    def _format_row(cells: list[str]) -> str:
+        return "  ".join(_pad(cell, col_widths[i]) for i, cell in enumerate(cells))
+
+    return [_format_row(headers), "  ".join("-" * w for w in col_widths)] + [_format_row(row) for row in rows]
+
+
+def format_summary(results: dict, report_url: str | None = None, paper_positions: list[dict] | None = None) -> str:
     """Telegram 봇 메시지는 HTML <table>을 지원하지 않으므로, 마크다운 코드블록(등폭 서체)
     안에 컬럼을 정렬해 표처럼 보이게 만든다. 이모지는 클라이언트마다 표시 폭이 달라 표 안에
     섞으면 정렬이 어긋날 수 있어 상단 범례로만 쓰고, 행 안의 액션은 순수 텍스트로 둔다.
     차트/LLM 총평 등 자세한 내용은 report_url(report_builder가 만든 일일 리포트)로 대신한다.
+
+    `paper_positions` (paper_trading.compute_position_returns' output, open positions only)
+    is optional — if empty/None, the positions block is omitted entirely (no empty header).
     """
     date = next(iter(results.values()))["date"] if results else ""
 
@@ -64,16 +80,7 @@ def format_summary(results: dict, report_url: str | None = None) -> str:
     for ticker, reco in results.items():
         category = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("category", "")
         rows.append([ticker, category, reco["action"], f"{reco['close']:.2f}"])
-
-    col_widths = [
-        max([_display_width(headers[i])] + [_display_width(row[i]) for row in rows]) for i in range(len(headers))
-    ]
-
-    def _format_row(cells: list[str]) -> str:
-        return "  ".join(_pad(cell, col_widths[i]) for i, cell in enumerate(cells))
-
-    table_lines = [_format_row(headers), "  ".join("-" * w for w in col_widths)]
-    table_lines.extend(_format_row(row) for row in rows)
+    table_lines = _format_table(headers, rows)
 
     legend = "  ".join(f"{emoji} {action}" for action, emoji in ACTION_EMOJI.items())
     text = (
@@ -81,12 +88,30 @@ def format_summary(results: dict, report_url: str | None = None) -> str:
         f"{legend}\n"
         "```\n" + "\n".join(table_lines) + "\n```"
     )
+
+    if paper_positions:
+        pos_headers = ["티커", "매수일", "매수가", "현재가", "수익률%"]
+        pos_rows = [
+            [
+                p["ticker"],
+                p["entry_date"],
+                f"{p['entry_price']:.2f}",
+                f"{p['current_price']:.2f}" if p["current_price"] is not None else "N/A",
+                f"{p['unrealized_pnl_pct']:+.2f}" if p["unrealized_pnl_pct"] is not None else "N/A",
+            ]
+            for p in paper_positions
+        ]
+        pos_lines = _format_table(pos_headers, pos_rows)
+        text += "\n\n*모의 투자 현황*\n```\n" + "\n".join(pos_lines) + "\n```"
+
     if report_url:
         text += f"\n🔗 [전체 리포트 보기 (차트 + 종합 해설)]({report_url})"
     return text
 
 
-def notify_recommendations(results: dict, report_url: str | None = None) -> None:
+def notify_recommendations(
+    results: dict, report_url: str | None = None, paper_positions: list[dict] | None = None
+) -> None:
     """Send the daily table summary (all tickers) plus a link to the full report — chart
     images and the LLM cross-asset overview live in that linked page (report_builder.py)
     rather than as separate Telegram attachments, to keep this to a single message.
@@ -96,6 +121,6 @@ def notify_recommendations(results: dict, report_url: str | None = None) -> None
         return
 
     try:
-        send_message(format_summary(results, report_url=report_url))
+        send_message(format_summary(results, report_url=report_url, paper_positions=paper_positions))
     except Exception:
         logger.exception("Failed to send Telegram summary message")

@@ -25,6 +25,7 @@ import config
 import data_fetcher
 import news_fetcher
 import openrouter_briefing
+import paper_trading
 import report_builder
 import signal_engine
 import telegram_notifier
@@ -242,10 +243,24 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
     # the workflow to check the report/Telegram plumbing can't clobber that day's real report.
     report_date = f"{date}_test" if config.IS_TEST_REPORT else date
 
+    # Paper trading (모의 투자) positions — recorded only via the Streamlit UI, never by this
+    # cron path — are read-only here so the day's report/Telegram summary can include them.
+    # A failure here must never block the recommendations/report/Telegram that already
+    # succeeded (same principle as every other try/except in this function).
+    try:
+        open_positions = [
+            p
+            for p in paper_trading.compute_position_returns(drive_db, paper_trading.load_positions(drive_db))
+            if p["status"] == "open"
+        ]
+    except Exception:
+        logger.exception("Failed to load paper trading positions (report/Telegram will omit this section)")
+        open_positions = []
+
     report_url = None
     if results:
         try:
-            report_html = report_builder.build_daily_report_html(drive_db, results)
+            report_html = report_builder.build_daily_report_html(drive_db, results, paper_positions=open_positions)
             report_builder.save_report(drive_db, report_date, report_html)
             report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
             logger.info("Saved daily report for %s", report_date)
@@ -257,7 +272,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
 
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
         try:
-            telegram_notifier.notify_recommendations(results, report_url=report_url)
+            telegram_notifier.notify_recommendations(results, report_url=report_url, paper_positions=open_positions)
         except Exception:
             logger.exception("Failed to send Telegram notifications (results still returned)")
     else:

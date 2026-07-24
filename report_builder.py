@@ -65,6 +65,8 @@ STYLE = """
   .news-meta { color: #888; font-size: 0.8rem; margin: 0.2rem 0; }
   .hold-chart-block { margin-bottom: 2rem; }
   .hold-chart-block h4 { margin-bottom: 0.3rem; }
+  .pnl-positive { color: #2e7d32; font-weight: bold; }
+  .pnl-negative { color: #c62828; font-weight: bold; }
 """
 
 
@@ -100,6 +102,39 @@ def _build_summary_table_html(results: dict) -> str:
         "<th>티커</th><th>자산</th><th>액션</th><th>종가</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
+
+
+def _build_paper_trading_html(positions: list[dict]) -> str:
+    """positions: open paper-trading positions already enriched by
+    paper_trading.compute_position_returns. Empty -> "" (section omitted entirely, no
+    news/analysis exists for an empty portfolio any more than it does for a HOLD ticker)."""
+    if not positions:
+        return ""
+
+    rows = []
+    for p in positions:
+        if p["current_price"] is None:
+            current_cell, pnl_cell = "N/A", "N/A"
+        else:
+            pnl_class = "pnl-positive" if p["unrealized_pnl"] >= 0 else "pnl-negative"
+            current_cell = f"{p['current_price']:.2f}"
+            pnl_cell = f"<span class='{pnl_class}'>{p['unrealized_pnl']:+.2f} ({p['unrealized_pnl_pct']:+.2f}%)</span>"
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(p['ticker'])}</td>"
+            f"<td>{_esc(p['entry_date'])}</td>"
+            f"<td>{p['entry_price']:.2f}</td>"
+            f"<td>{p['quantity']}</td>"
+            f"<td>{current_cell}</td>"
+            f"<td>{pnl_cell}</td>"
+            "</tr>"
+        )
+    table = (
+        "<table class='summary'><thead><tr>"
+        "<th>티커</th><th>매수일</th><th>매수가</th><th>수량</th><th>현재가</th><th>미실현손익</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+    return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
 
 
 def _build_chart_html(drive_db, ticker: str, include_plotlyjs) -> str | None:
@@ -201,8 +236,13 @@ def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]
     return f"<details><summary>📊 HOLD 종목 차트 보기 ({len(blocks)}개, 참고용)</summary>{''.join(blocks)}</details>"
 
 
-def build_daily_report_html(drive_db, results: dict) -> str:
-    """Build the full standalone HTML report page for one day's recommendation results."""
+def build_daily_report_html(drive_db, results: dict, paper_positions: list[dict] | None = None) -> str:
+    """Build the full standalone HTML report page for one day's recommendation results.
+
+    `paper_positions` (paper_trading.compute_position_returns' output, open positions only)
+    is optional so existing callers/tests are unaffected — omitted entirely from the report
+    if not given or empty (see _build_paper_trading_html).
+    """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
     overview = ""
@@ -214,6 +254,7 @@ def build_daily_report_html(drive_db, results: dict) -> str:
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     table_html = _build_summary_table_html(results)
+    paper_html = _build_paper_trading_html(paper_positions or [])
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
@@ -234,6 +275,7 @@ def build_daily_report_html(drive_db, results: dict) -> str:
 </div>
 {overview_html}
 {table_html}
+{paper_html}
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
