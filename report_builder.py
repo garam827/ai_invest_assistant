@@ -36,8 +36,10 @@ STYLE = """
   .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; }
   .chart-legend-key { font-size: 0.75rem; color: #888; text-align: right; max-width: 340px; line-height: 1.4; }
   .chart-frame { border: 1px solid #ddd; border-radius: 6px; padding: 0.8rem; margin: 0.8rem 0; }
-  /* 본문 문단(총평/분석 텍스트)만 가독성을 위해 읽기 편한 폭으로 제한 — 표·차트·뉴스 그리드는
-     제한 없이 컨테이너(위 body) 전체 폭을 그대로 쓴다. */
+  /* 교차 자산 총평(.overview)만 가독성을 위해 읽기 편한 폭으로 제한 — 표·차트·뉴스 그리드·
+     개별 종목 LLM 분석(.analysis)은 제한 없이 컨테이너(위 body) 전체 폭을 그대로 쓴다
+     (.analysis는 v3.30까지는 .overview와 같은 900px 제한이 있었으나, 종목별 분석 텍스트가
+     상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴다). */
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; max-width: 900px; }
   table.summary { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.8rem; }
   table.summary th, table.summary td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
@@ -52,7 +54,7 @@ STYLE = """
   .signal-card-header .ticker { font-size: 1.15rem; font-weight: bold; }
   .signal-card-header .label { color: #666; }
   .signal-card-header .close { margin-left: auto; color: #666; font-size: 0.9rem; }
-  .analysis { white-space: pre-wrap; background: #fafafa; border-radius: 6px; padding: 0.8rem 1rem; margin: 0.6rem 0; max-width: 900px; }
+  .analysis { white-space: pre-wrap; background: #fafafa; border-radius: 6px; padding: 0.8rem 1rem; margin: 0.6rem 0; }
   details { margin: 0.8rem 0; }
   details > summary { cursor: pointer; font-weight: bold; padding: 0.5rem 0.8rem; background: #f0f0f0; border-radius: 6px; }
   details[open] > summary { border-radius: 6px 6px 0 0; }

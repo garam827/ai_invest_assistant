@@ -63,7 +63,7 @@ INDICATOR_TABLE = pd.DataFrame(
         },
         {
             "지표": "거래량 급증 (Volume Surge)",
-            "설명": "당일 거래량이 최근 20일 평균 거래량의 1.5배 이상이면 거래량 차트에서 강조 표시. 돌파 신뢰도를 가늠하는 가짜 돌파 필터.",
+            "설명": "당일 거래량이 최근 20일 평균 거래량의 1.5배 이상이면 거래량 차트에서 강조 표시. 매수/매도 판정 자체에는 관여하지 않음(거래량이 낮아도 가격이 돌파하면 그대로 매수 판정) — 돌파 신뢰도를 가늠하는 참고 지표이자, 여러 종목을 우선순위로 스캔하는 기능(`scan_for_signals`, 아직 UI 미연결)에서 순위를 매기는 용도로만 쓰인다.",
         },
         {
             "지표": "매수/청산 시그널 마커 (▲ / ▼)",
@@ -260,7 +260,38 @@ with tab_intro:
         )
 
     with st.expander("사용된 지표 설명", expanded=True):
-        st.table(INDICATOR_TABLE)
+        # st.table은 컬럼 폭을 직접 제어할 수 없어 "지표" 이름 칸이 내용 길이에 따라 과하게
+        # 넓어지고 "설명" 칸이 좁아져 줄바꿈이 자주/어색하게 일어났다 — 직접 HTML 표를 그려
+        # 지표:설명 폭 비율을 고정하고, 한글이 음절 중간에서 잘리지 않도록 word-break을 지정.
+        indicator_rows_html = "".join(
+            f"<tr><td>{name}</td><td>{desc}</td></tr>"
+            for name, desc in zip(INDICATOR_TABLE.index, INDICATOR_TABLE["설명"])
+        )
+        st.markdown(
+            f"""
+            <style>
+            .indicator-table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+            .indicator-table col.name {{ width: 26%; }}
+            .indicator-table col.desc {{ width: 74%; }}
+            .indicator-table th, .indicator-table td {{
+                border: 1px solid rgba(128, 128, 128, 0.3);
+                padding: 0.5rem 0.8rem;
+                text-align: left;
+                vertical-align: top;
+                word-break: keep-all;
+                overflow-wrap: break-word;
+                line-height: 1.5;
+            }}
+            .indicator-table th {{ font-weight: 600; }}
+            </style>
+            <table class="indicator-table">
+              <colgroup><col class="name"><col class="desc"></colgroup>
+              <thead><tr><th>지표</th><th>설명</th></tr></thead>
+              <tbody>{indicator_rows_html}</tbody>
+            </table>
+            """,
+            unsafe_allow_html=True,
+        )
 
 # ---------------------------------------------------------------------------
 # 탭 2: 대표 자산군 분석 — S&P 500 자체(및 비트코인/금/미국채/원자재)도 동일한 추세추종 규칙을
