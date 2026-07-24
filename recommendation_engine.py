@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import time
 
 import pandas as pd
 
@@ -58,11 +59,30 @@ def _actions_from_results(results: dict) -> dict[str, str]:
     return {ticker: reco["action"] for ticker, reco in results.items()}
 
 
+def _signal_history_for_ticker(raw_df: pd.DataFrame) -> dict[str, str]:
+    """date -> mechanical action for one ticker's OHLCV (signal_engine.compute_signals +
+    get_mechanical_action). Shared by backfill_signal_history_from_prices (Drive-sourced,
+    limited to whatever's in the 5y rolling snapshot) and backfill_signal_history_deep
+    (yfinance-sourced, as deep as requested) so the per-row logic isn't duplicated."""
+    signals = signal_engine.compute_signals(raw_df)
+    result: dict[str, str] = {}
+    for _, row in signals.iterrows():
+        date = pd.Timestamp(row["Date"]).strftime("%Y-%m-%d")
+        summary = {
+            "breakout_20": bool(row["Breakout_20"]),
+            "breakout_100": bool(row["Breakout_100"]),
+            "exit_signal": bool(row["Exit_Signal"]),
+        }
+        result[date] = signal_engine.get_mechanical_action(summary)
+    return result
+
+
 def backfill_signal_history_from_prices(drive_db: DriveDB, tickers: dict | None = None) -> dict:
     """Full historical rebuild of _signal_history.json computed directly from each ticker's
-    stored OHLCV (signal_engine.compute_signals + get_mechanical_action) — much deeper than
-    backfill_signal_history below, which is limited to whatever _recommendations_{date}.json
-    files already exist (i.e. only since the cron started actually running). Purely
+    stored OHLCV — much deeper than backfill_signal_history below, which is limited to
+    whatever _recommendations_{date}.json files already exist (i.e. only since the cron
+    started actually running), but still capped by Drive's 5-year rolling snapshot. See
+    backfill_signal_history_deep for a rebuild that isn't even limited by that. Purely
     mechanical, no network calls, safe to re-run (always a full rebuild).
     """
     tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
@@ -71,16 +91,36 @@ def backfill_signal_history_from_prices(drive_db: DriveDB, tickers: dict | None 
         raw_df = drive_db.load_ticker(ticker)
         if raw_df is None or raw_df.empty:
             continue
-        signals = signal_engine.compute_signals(raw_df)
-        for _, row in signals.iterrows():
-            date = pd.Timestamp(row["Date"]).strftime("%Y-%m-%d")
-            summary = {
-                "breakout_20": bool(row["Breakout_20"]),
-                "breakout_100": bool(row["Breakout_100"]),
-                "exit_signal": bool(row["Exit_Signal"]),
-            }
-            action = signal_engine.get_mechanical_action(summary)
+        for date, action in _signal_history_for_ticker(raw_df).items():
             history.setdefault(date, {})[ticker] = action
+    drive_db.save_json(SIGNAL_HISTORY_FILENAME, history)
+    return history
+
+
+def backfill_signal_history_deep(
+    drive_db: DriveDB, start: str = "2007-01-01", tickers: dict | None = None
+) -> dict:
+    """The deepest signal-history rebuild — fetches full OHLCV directly from yfinance
+    (data_fetcher.fetch_ohlcv, start=`start`) instead of Drive's 5-year rolling snapshot, so
+    coverage isn't capped by the production Parquet retention window. Doesn't touch Drive's
+    per-ticker OHLCV storage at all (computed in memory; only the resulting
+    {date: {ticker: action}} accumulator is saved) — this is a manual/occasional research
+    operation, not part of the daily cron, so it makes real yfinance calls (throttled via
+    config.YFINANCE_REQUEST_DELAY_SEC like every other bulk fetch in this codebase).
+    2007-01-01 default covers 10 of the 12 ASSET_CLASS_TICKERS in full; CPER (from
+    2011-11-15) and BTC-USD (from 2014-09-17) are shorter no matter the start date used
+    here, since yfinance simply has no earlier data for them.
+    """
+    tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
+    history: dict[str, dict[str, str]] = {}
+    for ticker in tickers:
+        raw_df = data_fetcher.fetch_ohlcv(ticker, start=start)
+        if raw_df.empty:
+            logger.warning("No data returned for %s from %s, skipping", ticker, start)
+            continue
+        for date, action in _signal_history_for_ticker(raw_df).items():
+            history.setdefault(date, {})[ticker] = action
+        time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
     drive_db.save_json(SIGNAL_HISTORY_FILENAME, history)
     return history
 
