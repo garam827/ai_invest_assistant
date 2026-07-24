@@ -123,6 +123,13 @@ def get_report_html(date: str) -> str | None:
     return report_builder.load_report(get_drive_db(), date)
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_recommendations_for_date(date: str) -> dict | None:
+    """Cached by date, same reasoning as get_report_html — a past day's recommendations
+    never change once saved."""
+    return recommendation_engine.load_recommendations(get_drive_db(), date)
+
+
 @st.cache_data(ttl=300, show_spinner="포지션 불러오는 중...")
 def get_paper_positions() -> list[dict]:
     """Short TTL since positions can change within a session — any open/close action also
@@ -402,15 +409,15 @@ with tab_collect:
 
 # ---------------------------------------------------------------------------
 # 탭 4: 리포트 히스토리 — 크론(recommend.yml)이 report_builder로 만들어 Drive에 저장한
-# 날짜별 일일 리포트(전 종목 표 + LLM 종합 해설 + 차트) 목록을 보여준다.
-# 리포트 본문은 GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일 스크롤로 보게
-# 한다(v3.24) — iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤 max-width
-# 제한 없는 넓은 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지
-# 스크롤과 iframe 내부 스크롤이 겹쳐 가독성이 나빠졌다. Drive에는 저장됐지만 그 뒤 git
-# 커밋+푸시 단계가 실패해 GitHub Pages에는 아직 없는 경우를 대비해, Drive에서 읽은 HTML을
-# 그대로 다운로드할 수 있는 보조 버튼도 함께 둔다. 날짜 선택은 드롭다운(selectbox)보다
-# 한눈에 훑어보기 편하도록 세로 목록(radio, v3.25)으로 표시하고, 수동/샘플 테스트 발행
-# ("_test" 접미어)은 report_builder.list_report_dates에서 이미 걸러져 목록에 안 나온다.
+# 날짜별 일일 리포트 이력을 한 줄에 하나씩(v3.26, st.container(border=True) 카드) 보여준다:
+# 날짜 + 자산군별 그날의 액션(매수/HOLD/매도, 색상+약자) + 링크/다운로드. 리포트 본문 자체는
+# GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일 스크롤로 보게 한다(v3.24) —
+# iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤 max-width 제한 없는 넓은
+# 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지 스크롤과 iframe
+# 내부 스크롤이 겹쳐 가독성이 나빠졌다. Drive에는 저장됐지만 그 뒤 git 커밋+푸시 단계가
+# 실패해 GitHub Pages에는 아직 없는 경우를 대비해, Drive에서 읽은 HTML을 그대로 다운로드할
+# 수 있는 버튼도 행마다 둔다. 수동/샘플 테스트 발행("_test" 접미어)은
+# report_builder.list_report_dates에서 이미 걸러져 목록에 안 나온다(v3.25).
 # ---------------------------------------------------------------------------
 with tab_report:
     st.header("일일 리포트 히스토리")
@@ -419,19 +426,47 @@ with tab_report:
     if not report_dates:
         st.info("아직 저장된 리포트가 없습니다. 크론(recommend.yml)이 최소 한 번 실행된 뒤 표시됩니다.")
     else:
-        selected_date = st.radio("날짜 선택", report_dates, key="report_date_select")
-        report_html = get_report_html(selected_date)
-        if report_html is None:
-            st.warning(f"{selected_date} 리포트를 불러오지 못했습니다.")
-        else:
-            report_url = f"{config.REPORT_BASE_URL}/{selected_date}.html"
-            st.link_button("🔗 새 탭에서 리포트 보기", report_url, type="primary")
-            st.download_button(
-                "리포트 HTML 다운로드 (GitHub Pages에 아직 반영되지 않았거나 접속이 안 될 때)",
-                data=report_html,
-                file_name=f"{selected_date}.html",
-                mime="text/html",
-            )
+        report_tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
+        ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
+        ACTION_ROW_COLOR = {"매수": "green", "HOLD": "gray", "매도": "red"}
+        row_widths = [1.1] + [0.6] * len(report_tickers) + [0.9, 0.9]
+
+        header_cols = st.columns(row_widths)
+        header_cols[0].markdown("**날짜**")
+        for i, ticker in enumerate(report_tickers):
+            header_cols[1 + i].markdown(f"**{ticker}**")
+        header_cols[-2].markdown("**링크**")
+        header_cols[-1].markdown("**다운로드**")
+
+        for report_date in report_dates:
+            with st.container(border=True):
+                cols = st.columns(row_widths)
+                cols[0].write(report_date)
+
+                recos = get_recommendations_for_date(report_date) or {}
+                for i, ticker in enumerate(report_tickers):
+                    reco = recos.get(ticker)
+                    if reco is None:
+                        cols[1 + i].caption("-")
+                    else:
+                        letter = ACTION_SHORT.get(reco["action"], "?")
+                        color = ACTION_ROW_COLOR.get(reco["action"], "gray")
+                        cols[1 + i].markdown(f":{color}[**{letter}**]")
+
+                report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
+                cols[-2].link_button("보기", report_url, key=f"report_link_{report_date}")
+
+                report_html = get_report_html(report_date)
+                if report_html is not None:
+                    cols[-1].download_button(
+                        "받기",
+                        data=report_html,
+                        file_name=f"{report_date}.html",
+                        mime="text/html",
+                        key=f"report_download_{report_date}",
+                    )
+                else:
+                    cols[-1].caption("N/A")
 
 # ---------------------------------------------------------------------------
 # 탭 5: 모의 투자 — 사용자가 직접 기록하는 가상의 매수 포지션과 그 손익 추적.

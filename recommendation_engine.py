@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 
 
+def load_recommendations(drive_db: DriveDB, date: str) -> dict | None:
+    """Load a past day's saved recommendation results (see run_asset_class_recommendations),
+    e.g. for the Streamlit report-history tab's per-ticker action columns."""
+    return drive_db.load_json(f"{RECOMMENDATIONS_FILENAME_PREFIX}{date}.json")
+
+
 def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNESS_MAX_AGE_DAYS) -> bool:
     """True if the most recent stored bar is within max_age_days of now.
 
