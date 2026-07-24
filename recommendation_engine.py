@@ -58,10 +58,39 @@ def _actions_from_results(results: dict) -> dict[str, str]:
     return {ticker: reco["action"] for ticker, reco in results.items()}
 
 
+def backfill_signal_history_from_prices(drive_db: DriveDB, tickers: dict | None = None) -> dict:
+    """Full historical rebuild of _signal_history.json computed directly from each ticker's
+    stored OHLCV (signal_engine.compute_signals + get_mechanical_action) — much deeper than
+    backfill_signal_history below, which is limited to whatever _recommendations_{date}.json
+    files already exist (i.e. only since the cron started actually running). Purely
+    mechanical, no network calls, safe to re-run (always a full rebuild).
+    """
+    tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
+    history: dict[str, dict[str, str]] = {}
+    for ticker in tickers:
+        raw_df = drive_db.load_ticker(ticker)
+        if raw_df is None or raw_df.empty:
+            continue
+        signals = signal_engine.compute_signals(raw_df)
+        for _, row in signals.iterrows():
+            date = pd.Timestamp(row["Date"]).strftime("%Y-%m-%d")
+            summary = {
+                "breakout_20": bool(row["Breakout_20"]),
+                "breakout_100": bool(row["Breakout_100"]),
+                "exit_signal": bool(row["Exit_Signal"]),
+            }
+            action = signal_engine.get_mechanical_action(summary)
+            history.setdefault(date, {})[ticker] = action
+    drive_db.save_json(SIGNAL_HISTORY_FILENAME, history)
+    return history
+
+
 def backfill_signal_history(drive_db: DriveDB) -> dict:
     """Rebuild _signal_history.json from every existing _recommendations_{date}.json in
     Drive (re-run-safe — always a full rebuild, not an incremental append). Test-suffixed
-    dates are excluded, same as report_builder.list_report_dates."""
+    dates are excluded, same as report_builder.list_report_dates. Only covers the (short)
+    window _recommendations_*.json files already exist for — see
+    backfill_signal_history_from_prices above for a much deeper, price-derived rebuild."""
     filenames = drive_db.list_filenames(RECOMMENDATIONS_FILENAME_PREFIX)
     history: dict[str, dict[str, str]] = {}
     for filename in filenames:
