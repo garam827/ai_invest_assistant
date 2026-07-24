@@ -286,10 +286,17 @@ def build_daily_report_html(drive_db, results: dict, paper_positions: list[dict]
 
 
 def save_report(drive_db, date: str, report_html: str) -> None:
-    """Persist the report both to Drive (for the Streamlit history tab) and to a local
-    docs/reports/ file (for recommend.yml to commit+push so GitHub Pages serves it).
+    """Persist the report to Drive (for the Streamlit history tab). Also writes a local
+    docs/reports/{date}.html file for recommend.yml to commit+push to GitHub Pages — but
+    only for a real (non-test) `date`. A "_test"-suffixed date (config.IS_TEST_REPORT) is
+    Drive-only, so a manual/sample publish never commits anything to the public repo or
+    GitHub Pages — Drive plus the Streamlit "리포트 히스토리" tab's download button is
+    enough to inspect a test run's output.
     """
     drive_db.save_text(f"{REPORT_FILENAME_PREFIX}{date}.html", report_html)
+
+    if date.endswith("_test"):
+        return
 
     os.makedirs(LOCAL_REPORT_DIR, exist_ok=True)
     with open(os.path.join(LOCAL_REPORT_DIR, f"{date}.html"), "w", encoding="utf-8") as f:

@@ -272,7 +272,10 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         try:
             report_html = report_builder.build_daily_report_html(drive_db, results, paper_positions=open_positions)
             report_builder.save_report(drive_db, report_date, report_html)
-            report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
+            # A test publish is never committed to docs/reports (see report_builder.save_report),
+            # so it never actually reaches GitHub Pages — don't hand out a URL that 404s.
+            if not config.IS_TEST_REPORT:
+                report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
             logger.info("Saved daily report for %s", report_date)
         except Exception:
             # A failed report build must never take down the recommendation batch or the
