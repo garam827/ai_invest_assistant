@@ -123,11 +123,11 @@ def get_report_html(date: str) -> str | None:
     return report_builder.load_report(get_drive_db(), date)
 
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_recommendations_for_date(date: str) -> dict | None:
-    """Cached by date, same reasoning as get_report_html — a past day's recommendations
-    never change once saved."""
-    return recommendation_engine.load_recommendations(get_drive_db(), date)
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_signal_history() -> dict:
+    """{date: {ticker: action}} — one Drive read for the whole report-history table's
+    action columns, instead of one _recommendations_{date}.json read per row."""
+    return recommendation_engine.load_signal_history(get_drive_db())
 
 
 @st.cache_data(ttl=300, show_spinner="포지션 불러오는 중...")
@@ -410,7 +410,11 @@ with tab_collect:
 # ---------------------------------------------------------------------------
 # 탭 4: 리포트 히스토리 — 크론(recommend.yml)이 report_builder로 만들어 Drive에 저장한
 # 날짜별 일일 리포트 이력을 한 줄에 하나씩(v3.26, st.container(border=True) 카드) 보여준다:
-# 날짜 + 자산군별 그날의 액션(매수/HOLD/매도, 색상+약자) + 링크/다운로드. 리포트 본문 자체는
+# 날짜 + 자산군별 그날의 액션(매수/HOLD/매도, 색상+약자) + 링크/다운로드. 액션은 날짜별
+# _recommendations_{date}.json을 하나씩 읽는 대신, recommendation_engine이 매일 실제(비-테스트)
+# 발행 때마다 갱신해 두는 가벼운 누적 파일 _signal_history.json을 통째로 한 번만 읽어서 채운다
+# (v3.28 — Drive 읽기 횟수를 날짜 수만큼에서 1번으로 줄이고, LLM 텍스트/뉴스처럼 필요 없는
+# 데이터까지 매번 읽어오지 않게 함). 리포트 본문 자체는
 # GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일 스크롤로 보게 한다(v3.24) —
 # iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤 max-width 제한 없는 넓은
 # 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지 스크롤과 iframe
@@ -438,19 +442,21 @@ with tab_report:
         header_cols[-2].markdown("**링크**")
         header_cols[-1].markdown("**다운로드**")
 
+        signal_history = get_signal_history()
+
         for report_date in report_dates:
             with st.container(border=True):
                 cols = st.columns(row_widths)
                 cols[0].write(report_date)
 
-                recos = get_recommendations_for_date(report_date) or {}
+                day_actions = signal_history.get(report_date, {})
                 for i, ticker in enumerate(report_tickers):
-                    reco = recos.get(ticker)
-                    if reco is None:
+                    action = day_actions.get(ticker)
+                    if action is None:
                         cols[1 + i].caption("-")
                     else:
-                        letter = ACTION_SHORT.get(reco["action"], "?")
-                        color = ACTION_ROW_COLOR.get(reco["action"], "gray")
+                        letter = ACTION_SHORT.get(action, "?")
+                        color = ACTION_ROW_COLOR.get(action, "gray")
                         cols[1 + i].markdown(f":{color}[**{letter}**]")
 
                 report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"

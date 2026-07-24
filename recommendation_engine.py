@@ -35,11 +35,36 @@ logger = logging.getLogger(__name__)
 
 RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 
+# Lightweight {date: {ticker: action}} accumulator — one small file, vs. re-reading every
+# day's full _recommendations_{date}.json (which also carries LLM text/news, unused by
+# anything that just wants "what was the action that day") for the Streamlit report-history
+# table's per-ticker action columns. Real dates only — see run_asset_class_recommendations.
+SIGNAL_HISTORY_FILENAME = "_signal_history.json"
 
-def load_recommendations(drive_db: DriveDB, date: str) -> dict | None:
-    """Load a past day's saved recommendation results (see run_asset_class_recommendations),
-    e.g. for the Streamlit report-history tab's per-ticker action columns."""
-    return drive_db.load_json(f"{RECOMMENDATIONS_FILENAME_PREFIX}{date}.json")
+
+def load_signal_history(drive_db: DriveDB) -> dict:
+    return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
+
+
+def _actions_from_results(results: dict) -> dict[str, str]:
+    return {ticker: reco["action"] for ticker, reco in results.items()}
+
+
+def backfill_signal_history(drive_db: DriveDB) -> dict:
+    """Rebuild _signal_history.json from every existing _recommendations_{date}.json in
+    Drive (re-run-safe — always a full rebuild, not an incremental append). Test-suffixed
+    dates are excluded, same as report_builder.list_report_dates."""
+    filenames = drive_db.list_filenames(RECOMMENDATIONS_FILENAME_PREFIX)
+    history: dict[str, dict[str, str]] = {}
+    for filename in filenames:
+        date = filename.removeprefix(RECOMMENDATIONS_FILENAME_PREFIX).removesuffix(".json")
+        if date.endswith("_test"):
+            continue
+        results = drive_db.load_json(filename)
+        if results:
+            history[date] = _actions_from_results(results)
+    drive_db.save_json(SIGNAL_HISTORY_FILENAME, history)
+    return history
 
 
 def _is_data_fresh(raw_df: pd.DataFrame, max_age_days: int = config.DATA_FRESHNESS_MAX_AGE_DAYS) -> bool:
@@ -250,6 +275,16 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         # Don't let a transient Drive/network failure on the final save discard the
         # per-ticker work already done — the caller still gets the in-memory results.
         logger.exception("Failed to persist recommendations to Drive (results still returned)")
+
+    # Update the signal-history accumulator (see SIGNAL_HISTORY_FILENAME above) — real
+    # publishes only, so a manual/sample test run never pollutes this persistent history.
+    if results and not config.IS_TEST_REPORT:
+        try:
+            history = load_signal_history(drive_db)
+            history[date] = _actions_from_results(results)
+            drive_db.save_json(SIGNAL_HISTORY_FILENAME, history)
+        except Exception:
+            logger.exception("Failed to update signal history (recommendations/report/Telegram unaffected)")
 
     report_date = file_date
 
