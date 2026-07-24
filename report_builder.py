@@ -360,5 +360,16 @@ def list_report_dates(drive_db) -> list[str]:
     return sorted(dates, reverse=True)
 
 
+def list_test_report_dates(drive_db) -> list[str]:
+    """The counterpart to list_report_dates — dates (still carrying the "_test" suffix, e.g.
+    "2026-07-24_test") for saved test/sample publishes, newest first. These never reach
+    GitHub Pages (report_builder.save_report skips docs/reports/ for them), so Drive +
+    this list is the only way to browse them — see app.py's "테스트/샘플 리포트 보기" toggle."""
+    filenames = drive_db.list_filenames(REPORT_FILENAME_PREFIX)
+    dates = [f.removeprefix(REPORT_FILENAME_PREFIX).removesuffix(".html") for f in filenames]
+    dates = [d for d in dates if d.endswith("_test")]
+    return sorted(dates, reverse=True)
+
+
 def load_report(drive_db, date: str) -> str | None:
     return drive_db.load_text(f"{REPORT_FILENAME_PREFIX}{date}.html")

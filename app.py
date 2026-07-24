@@ -117,6 +117,13 @@ def get_report_dates() -> list[str]:
     return report_builder.list_report_dates(get_drive_db())
 
 
+@st.cache_data(ttl=300, show_spinner="테스트 리포트 목록 불러오는 중...")
+def get_test_report_dates() -> list[str]:
+    """Short TTL — unlike real reports (one per day), test dates can be created/re-run
+    within the same session while someone is actively testing the pipeline."""
+    return report_builder.list_test_report_dates(get_drive_db())
+
+
 @st.cache_data(ttl=86400, show_spinner="리포트 불러오는 중...")
 def get_report_html(date: str) -> str | None:
     """Cached by date, not TTL alone — a past date's report never changes once published."""
@@ -488,14 +495,24 @@ with tab_report:
         )
         st.caption("B=매수 · H=HOLD · S=매도")
 
+        # 테스트/샘플 발행("_test" 접미어)은 GitHub Pages에 전혀 게시되지 않아(v3.27) 위
+        # 표/링크에는 안 나온다 — 이 토글을 켜면 다운로드 목록에만 포함시켜, Drive에 저장된
+        # 테스트 리포트 내용을 직접 받아서 확인할 수 있게 한다(기본은 꺼짐).
+        include_test_reports = st.toggle("테스트/샘플 리포트도 다운로드 목록에 포함", key="include_test_reports")
+        download_choices = {d: d for d in report_dates}
+        if include_test_reports:
+            for test_date in get_test_report_dates():
+                download_choices[f"{test_date.removesuffix('_test')} (테스트)"] = test_date
+
         with st.form("report_download_form"):
             dl_cols = st.columns([3, 1])
-            download_date = dl_cols[0].selectbox(
-                "다운로드할 날짜", report_dates, key="report_download_date", label_visibility="collapsed"
+            download_label = dl_cols[0].selectbox(
+                "다운로드할 날짜", list(download_choices), key="report_download_date", label_visibility="collapsed"
             )
             download_submitted = dl_cols[1].form_submit_button("준비", width="stretch")
 
         if download_submitted:
+            download_date = download_choices[download_label]
             report_html = get_report_html(download_date)
             if report_html is None:
                 st.warning(f"{download_date} 리포트를 불러오지 못했습니다.")
