@@ -466,21 +466,28 @@ with tab_report:
     st.header("일일 리포트 히스토리")
 
     report_dates = get_report_dates()
-    if not report_dates:
+    signal_history = get_signal_history()
+    if not report_dates and not signal_history:
         st.info("아직 저장된 리포트가 없습니다. 크론(recommend.yml)이 최소 한 번 실행된 뒤 표시됩니다.")
     else:
         report_tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
         ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
         ACTION_CELL_STYLE = {"B": "color: green", "H": "color: gray", "S": "color: red"}
 
-        signal_history = get_signal_history()
+        # 표는 리포트가 발행된 날짜뿐 아니라 _signal_history.json에 있는 모든 날짜(가격 기반
+        # 백필 포함, [기능 5] 참고 — 최대 5년치)를 다 보여준다. 리포트가 없는 날짜는 "링크"
+        # 칸만 비워두고(None) 액션 컬럼은 그대로 채운다 — v3.35, 리포트 히스토리 표를
+        # "발행된 리포트 목록"에서 "시그널 이력 전체 + 리포트 유무" 표로 확장.
+        report_date_set = set(report_dates)
+        all_dates = sorted(set(signal_history) | report_date_set, reverse=True)
+
         history_rows = []
-        for report_date in report_dates:
-            day_actions = signal_history.get(report_date, {})
-            row = {"날짜": report_date}
+        for date in all_dates:
+            day_actions = signal_history.get(date, {})
+            row = {"날짜": date}
             for ticker in report_tickers:
                 row[ticker] = ACTION_SHORT.get(day_actions.get(ticker), "-")
-            row["링크"] = f"{config.REPORT_BASE_URL}/{report_date}.html"
+            row["링크"] = f"{config.REPORT_BASE_URL}/{date}.html" if date in report_date_set else None
             history_rows.append(row)
 
         history_df = pd.DataFrame(history_rows)
