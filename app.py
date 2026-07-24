@@ -402,8 +402,13 @@ with tab_collect:
 
 # ---------------------------------------------------------------------------
 # 탭 4: 리포트 히스토리 — 크론(recommend.yml)이 report_builder로 만들어 Drive에 저장한
-# 날짜별 일일 리포트(전 종목 표 + LLM 종합 해설 + 차트)를 재계산 없이 그대로 다시 렌더링.
-# 텔레그램에 발송되는 GitHub Pages 링크와 동일한 내용을 앱 안에서도 볼 수 있게 하는 용도.
+# 날짜별 일일 리포트(전 종목 표 + LLM 종합 해설 + 차트) 목록을 보여준다.
+# 리포트 본문은 GitHub Pages 링크로 새 탭에서 열어 원래 설계된 전체 폭/단일 스크롤로 보게
+# 한다(v3.24) — iframe에 그대로 욱여넣으면 리포트가 v3.4에서 의도적으로 없앤 max-width
+# 제한 없는 넓은 레이아웃을 Streamlit의 좁은 컨테이너 폭으로 다시 눌러버리고, 바깥 페이지
+# 스크롤과 iframe 내부 스크롤이 겹쳐 가독성이 나빠졌다. Drive에는 저장됐지만 그 뒤 git
+# 커밋+푸시 단계가 실패해 GitHub Pages에는 아직 없는 경우를 대비해, Drive에서 읽은 HTML을
+# 그대로 다운로드할 수 있는 보조 버튼도 함께 둔다.
 # ---------------------------------------------------------------------------
 with tab_report:
     st.header("일일 리포트 히스토리")
@@ -417,8 +422,14 @@ with tab_report:
         if report_html is None:
             st.warning(f"{selected_date} 리포트를 불러오지 못했습니다.")
         else:
-            # 넉넉하게: 자산군 10종목 차트(각 ~950px)까지 스크롤 없이 최대한 담기게 함.
-            st.iframe(report_html, height=9500)
+            report_url = f"{config.REPORT_BASE_URL}/{selected_date}.html"
+            st.link_button("🔗 새 탭에서 리포트 보기", report_url, type="primary")
+            st.download_button(
+                "리포트 HTML 다운로드 (GitHub Pages에 아직 반영되지 않았거나 접속이 안 될 때)",
+                data=report_html,
+                file_name=f"{selected_date}.html",
+                mime="text/html",
+            )
 
 # ---------------------------------------------------------------------------
 # 탭 5: 모의 투자 — 사용자가 직접 기록하는 가상의 매수 포지션과 그 손익 추적.
