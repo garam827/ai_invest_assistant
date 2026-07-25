@@ -501,6 +501,14 @@ with tab_report:
             column_config={"링크": st.column_config.LinkColumn("링크", display_text=r"([^/]+)$")},
         )
         st.caption("B=매수 · H=HOLD · S=매도")
+        st.download_button(
+            "전체 시그널 이력 CSV 다운로드",
+            # utf-8-sig: BOM을 붙여야 엑셀에서 한글이 안 깨지고 정상적으로 열린다.
+            data=history_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="signal_history.csv",
+            mime="text/csv",
+            key="signal_history_csv_download",
+        )
 
         # 테스트/샘플 발행("_test" 접미어)은 GitHub Pages에 전혀 게시되지 않아(v3.27) 위
         # 표/링크에는 안 나온다 — 이 토글을 켜면 다운로드 목록에만 포함시켜, Drive에 저장된
