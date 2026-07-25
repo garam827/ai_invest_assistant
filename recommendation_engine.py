@@ -107,9 +107,10 @@ def backfill_signal_history_deep(
     {date: {ticker: action}} accumulator is saved) — this is a manual/occasional research
     operation, not part of the daily cron, so it makes real yfinance calls (throttled via
     config.YFINANCE_REQUEST_DELAY_SEC like every other bulk fetch in this codebase).
-    2007-01-01 default covers 10 of the 12 ASSET_CLASS_TICKERS in full; CPER (from
-    2011-11-15) and BTC-USD (from 2014-09-17) are shorter no matter the start date used
-    here, since yfinance simply has no earlier data for them.
+    2007-01-01 default covers 11 of the 12 ASSET_CLASS_TICKERS in full; only BTC-USD (from
+    2014-09-17) is shorter no matter the start date used here, since yfinance simply has no
+    earlier data for it (CPER, the previous 2011-11-15 straggler, was replaced by DBB in
+    v3.38 specifically because DBB starts 2007-01-05, closing that gap).
     """
     tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
     history: dict[str, dict[str, str]] = {}

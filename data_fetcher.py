@@ -101,11 +101,11 @@ ASSET_CLASS_TICKERS = {
         "description": "옥수수·대두·밀·설탕 등 주요 농산물 선물에 분산 투자하는 ETF",
         "news_query": "agricultural commodities market outlook analysis",
     },
-    "CPER": {
-        "label": "구리 (Copper)",
+    "DBB": {
+        "label": "기초금속 (Base Metals)",
         "category": "원자재",
-        "description": "구리 선물 가격을 추종하는 ETF (경기 선행지표로도 참고됨)",
-        "news_query": "copper price outlook macro analysis",
+        "description": "구리·알루미늄·아연 선물에 분산 투자하는 ETF (산업 수요 프록시, 경기 선행지표로도 참고됨)",
+        "news_query": "base metals copper aluminum zinc price outlook macro analysis",
     },
     "UUP": {
         "label": "미국 달러 인덱스 (US Dollar Index)",
