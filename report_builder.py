@@ -41,14 +41,15 @@ STYLE = """
      분석(.analysis)이 상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴고,
      교차 자산 총평(.overview)도 같은 이유로 v3.33에서 제한을 없앴다. */
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
-  table.summary { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.8rem; }
-  table.summary th, table.summary td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
-  table.summary th { background: #f5f5f5; }
-  table.summary a { color: inherit; text-decoration: underline; }
-  table.summary tr.category-row td { background: #eceff1; font-weight: bold; text-align: left; }
-  table.signal-history { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.72rem; }
-  table.signal-history th, table.signal-history td { border: 1px solid #ddd; padding: 2px 6px; text-align: center; line-height: 1.2; }
-  table.signal-history th { background: #f5f5f5; }
+  /* 정보 밀도가 높은 표(요약/모의투자/시그널 이력/AI 예측) 공통 스타일 -- 한눈에 훑어볼 수 있도록
+     행 높이를 낮게 유지한다. 원래 table.summary(패딩 6px 10px)와 table.signal-history(패딩 2px 6px)
+     가 서로 다른 밀도로 분리돼 있었으나, 리포트의 모든 표를 동일하게 조밀한 밀도로 맞춰달라는
+     요청으로 하나의 table.dense 클래스로 통합했다(v3.44). */
+  table.dense { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.72rem; }
+  table.dense th, table.dense td { border: 1px solid #ddd; padding: 2px 6px; text-align: center; line-height: 1.2; }
+  table.dense th { background: #f5f5f5; }
+  table.dense a { color: inherit; text-decoration: underline; }
+  table.dense tr.category-row td { background: #eceff1; font-weight: bold; text-align: left; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-weight: bold; font-size: 0.85rem; }
   .signal-card { border: 1px solid #ddd; border-left: 5px solid #999; border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; scroll-margin-top: 1rem; }
   .signal-card.buy { border-left-color: #2e7d32; }
@@ -104,7 +105,7 @@ def _build_summary_table_html(results: dict) -> str:
             "</tr>"
         )
     return (
-        "<table class='summary'><thead><tr>"
+        "<table class='dense'><thead><tr>"
         "<th>티커</th><th>자산</th><th>액션</th><th>종가</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
@@ -138,7 +139,7 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
             "</tr>"
         )
     table = (
-        "<table class='summary'><thead><tr>"
+        "<table class='dense'><thead><tr>"
         "<th>티커</th><th>매수일</th><th>매수가</th><th>수량</th><th>설정일</th><th>현재가</th><th>미실현손익</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
@@ -198,7 +199,7 @@ def _build_prediction_simulation_html(prediction_simulation: dict | None, commen
             "</tr>"
         )
     table = (
-        "<table class='summary'><thead><tr>"
+        "<table class='dense'><thead><tr>"
         "<th>티커</th><th>자산</th><th>기준일</th><th>추세 점수(예측)</th><th>과거 평균 점수</th>"
         "<th>신뢰도(단순평균 대비 개선율)</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
@@ -249,7 +250,7 @@ def _build_signal_history_html(signal_history: dict) -> str:
             cells.append(f"<td style='color:{color};font-weight:bold'>{letter}</td>")
         rows.append(f"<tr><td>{_esc(date)}</td>{''.join(cells)}</tr>")
     table = (
-        "<table class='signal-history'><thead><tr>"
+        "<table class='dense'><thead><tr>"
         f"<th>날짜</th>{header}"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
@@ -425,11 +426,11 @@ def build_daily_report_html(
 {overview_html}
 {table_html}
 {history_html}
+{prediction_html}
 {paper_html}
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
-{prediction_html}
 </body>
 </html>"""
 

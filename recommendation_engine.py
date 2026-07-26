@@ -52,12 +52,20 @@ def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
 
 
-def _recent_signal_history(history: dict, days: int = 30) -> dict:
-    """Slice to the last `days` calendar days — used for the daily report's embedded signal
-    history table (report_builder._build_signal_history_html), which shouldn't grow forever
-    the way the Streamlit report-history tab's full-history view does."""
-    cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)).date().isoformat()
-    return {date: actions for date, actions in history.items() if date >= cutoff}
+def _recent_signal_history(history: dict, days: int = 20) -> dict:
+    """Slice to the most recent `days` *weekday* dates (Mon-Fri) — used for the daily
+    report's embedded signal history table (report_builder._build_signal_history_html),
+    which shouldn't grow forever the way the Streamlit report-history tab's full-history
+    view does.
+
+    Filters out weekend dates before counting, not just after — `history`'s date axis
+    includes Saturday/Sunday entries because BTC-USD trades every day, but the other 11 of
+    12 ASSET_CLASS_TICKERS don't, so a plain "last N recorded dates" would waste a chunk of
+    the row budget on weekend rows that are blank ("-") for almost every column. Default 20
+    matches signal_engine's own 20-day Donchian window (DC20)."""
+    weekday_dates = [date for date in history if pd.Timestamp(date).dayofweek < 5]
+    recent_dates = sorted(weekday_dates, reverse=True)[:days]
+    return {date: history[date] for date in recent_dates}
 
 
 def _actions_from_results(results: dict) -> dict[str, str]:
@@ -385,7 +393,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         logger.exception("Failed to load paper trading positions (report/Telegram will omit this section)")
         open_positions = []
 
-    # Recent signal history (최근 30일) for the report's own reference table — Drive-only,
+    # Recent signal history (최근 20거래일) for the report's own reference table — Drive-only,
     # never reaches the LLM/news calls above. A failure here must not block the report either.
     try:
         recent_history = _recent_signal_history(load_signal_history(drive_db))
