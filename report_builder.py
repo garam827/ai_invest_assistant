@@ -46,6 +46,9 @@ STYLE = """
   table.summary th { background: #f5f5f5; }
   table.summary a { color: inherit; text-decoration: underline; }
   table.summary tr.category-row td { background: #eceff1; font-weight: bold; text-align: left; }
+  table.signal-history { border-collapse: collapse; width: 100%; margin: 1rem 0 2rem; font-size: 0.72rem; }
+  table.signal-history th, table.signal-history td { border: 1px solid #ddd; padding: 2px 6px; text-align: center; line-height: 1.2; }
+  table.signal-history th { background: #f5f5f5; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; color: #fff; font-weight: bold; font-size: 0.85rem; }
   .signal-card { border: 1px solid #ddd; border-left: 5px solid #999; border-radius: 6px; padding: 1rem 1.2rem; margin-bottom: 1.5rem; scroll-margin-top: 1rem; }
   .signal-card.buy { border-left-color: #2e7d32; }
@@ -166,7 +169,7 @@ def _build_signal_history_html(signal_history: dict) -> str:
             cells.append(f"<td style='color:{color};font-weight:bold'>{letter}</td>")
         rows.append(f"<tr><td>{_esc(date)}</td>{''.join(cells)}</tr>")
     table = (
-        "<table class='summary'><thead><tr>"
+        "<table class='signal-history'><thead><tr>"
         f"<th>날짜</th>{header}"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
