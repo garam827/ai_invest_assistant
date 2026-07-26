@@ -1,0 +1,11 @@
+# Local development extras (Jupyter + ML/analysis) — not installed in GitHub Actions,
+# which only needs requirements.txt for collect.yml/recommend.yml.
+-r requirements.txt
+
+jupyterlab
+notebook
+ipykernel
+numpy
+scikit-learn
+matplotlib
+seaborn
