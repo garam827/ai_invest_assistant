@@ -152,3 +152,35 @@ def generate_portfolio_overview(results: dict, signal_history: dict | None = Non
 
     prompt = "\n".join(lines) + "\n\n위 오늘의 판정과 최근 시그널 이력을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
     return _call_chat(PORTFOLIO_OVERVIEW_SYSTEM_PROMPT, prompt)
+
+
+PREDICTION_COMMENTARY_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 실험적 머신러닝 모델이 대표 자산군별로 추정한 '추세 점수'다 — "
+    "log((향후 30일 예상 매수일수+1) / (향후 30일 예상 매도일수+1))로 계산되며, 이 모델은 "
+    "과거 시그널 패턴만으로 학습됐고 검증이 제한적이다(단순 평균 예측 대비 소폭 개선 수준). "
+    "각 자산의 예측값은 그 자산 자신의 과거 평균 점수와 함께 주어진다 — 점수가 음수인 것 "
+    "자체는 매수(신고점 갱신, 하루짜리 이벤트)보다 매도(트레일링 스탑 하회, 여러 날 지속되는 "
+    "상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. 오직 (1) 이번 예측이 그 "
+    "자산의 과거 평균보다 높은지 낮은지, (2) 여러 자산군에 걸쳐 공통으로 나타나는 패턴만 감정 "
+    "없이 담담한 사실 위주로 짚어라. 이 해설은 이 실험적 모델의 결과를 설명하는 것일 뿐이며, "
+    "실제 매수/HOLD/매도 판정(기계적 규칙 기반)을 절대 바꾸거나 재해석하지 않고, 향후 가격이나 "
+    "방향성을 예측·전망하는 문장도 쓰지 마라."
+)
+
+
+def generate_prediction_commentary(predictions: dict) -> str:
+    """One-paragraph synthesis of prediction_model's experimental trend-score simulation
+    (report_builder.build_daily_report_html's "AI 예측 시뮬레이션" section — see
+    prediction_model_spec.md). `predictions` is _prediction_simulation.json's own
+    "predictions" dict ({ticker: {trend_score, historical_avg_score, ...}}).
+
+    Commentary only — explicitly forbidden (see PREDICTION_COMMENTARY_SYSTEM_PROMPT) from
+    predicting future price/direction or influencing any mechanical action, same
+    advisory-only principle as generate_portfolio_overview/generate_recommendation.
+    """
+    lines = ["[자산군별 추세 점수 (실험적 ML 예측)]"]
+    for ticker, pred in predictions.items():
+        lines.append(f"- {ticker}: 예측 {pred['trend_score']:+.3f} (과거 평균 {pred['historical_avg_score']:+.3f})")
+    prompt = "\n".join(lines) + "\n\n위 자산군별 추세 점수를 각 자산의 과거 평균과 비교해 한 문단으로 요약하라."
+    return _call_chat(PREDICTION_COMMENTARY_SYSTEM_PROMPT, prompt)

@@ -145,13 +145,20 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
 
 
-def _build_prediction_simulation_html(prediction_simulation: dict | None) -> str:
+def _build_prediction_simulation_html(prediction_simulation: dict | None, commentary: str = "") -> str:
     """prediction_simulation: prediction_model/generate_predictions.py's output
     ({"generated_at": ..., "predictions": {ticker: {as_of_date, trend_score, val_mae,
     baseline_mae, improvement_pct, historical_avg_score}}}), loaded read-only from Drive by
     the caller (recommendation_engine) -- this experimental ML model is trained/refreshed
     manually, entirely outside collect.yml/recommend.yml (see prediction_model_spec.md
     section 7).
+
+    `commentary` (optional, openrouter_briefing.generate_prediction_commentary's output --
+    computed by the caller, same pattern as `overview`/generate_portfolio_overview) is a
+    one-paragraph LLM read of the scores below, rendered right under the disclaimer.
+    Commentary-only, same advisory-only constraint as the rest of the LLM sections --
+    PREDICTION_COMMENTARY_SYSTEM_PROMPT explicitly forbids it from predicting future
+    price/direction or touching any mechanical action.
 
     `trend_score` is log((매수일+1)/(매도일+1)) over the predicted next 30 days — positive
     means fresh breakouts (매수) outnumber trailing-stop breaches (매도), negative the
@@ -213,7 +220,8 @@ def _build_prediction_simulation_html(prediction_simulation: dict | None) -> str
         "수치가 낮다고 예측이 틀렸다는 뜻은 아니지만 참고용 이상으로 받아들이지 마세요."
         "</div>"
     )
-    return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{table}"
+    commentary_html = f"<p class='overview'>{_esc(commentary)}</p>" if commentary else ""
+    return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{commentary_html}{table}"
 
 
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
@@ -382,11 +390,20 @@ def build_daily_report_html(
         except Exception:
             pass
 
+    prediction_commentary = ""
+    if not config.SKIP_LLM_AND_NEWS and prediction_simulation and prediction_simulation.get("predictions"):
+        try:
+            prediction_commentary = openrouter_briefing.generate_prediction_commentary(
+                prediction_simulation["predictions"]
+            )
+        except Exception:
+            pass
+
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     table_html = _build_summary_table_html(results)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
-    prediction_html = _build_prediction_simulation_html(prediction_simulation)
+    prediction_html = _build_prediction_simulation_html(prediction_simulation, prediction_commentary)
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
