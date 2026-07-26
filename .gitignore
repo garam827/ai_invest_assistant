@@ -15,3 +15,4 @@ token.json
 # triple_barrier_backtest_spec.md's backtest_cache/.
 prediction_model/ohlcv_cache/
 prediction_model/*.csv
+prediction_model/*.npz

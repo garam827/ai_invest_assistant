@@ -1,6 +1,6 @@
-# 스펙: 자산군 시그널 예측 모델 (설계안, 1단계 구현)
+# 스펙: 자산군 시그널 예측 모델 (설계안, 2단계 구현)
 
-> **상태: 1단계(피처 엔지니어링) 구현 완료 — 모델 설계·학습·평가는 미구현.** 이 문서는 `investment_assistant_spec.md`(메인 스펙)와 별도로 관리한다. `paper_trading_spec.md`/`triple_barrier_backtest_spec.md`와 같은 성격의 문서 — 실제 모델까지 완성되면 그때 메인 스펙에 새 `[기능 N]` 섹션과 버전 changelog로 통합하고, 이 파일은 `prediction_model_spec_v1.md` 등으로 보존한다.
+> **상태: 2단계(X/y 데이터셋 구축) 구현 완료 — 모델 설계·학습·평가는 미구현.** 이 문서는 `investment_assistant_spec.md`(메인 스펙)와 별도로 관리한다. `paper_trading_spec.md`/`triple_barrier_backtest_spec.md`와 같은 성격의 문서 — 실제 모델까지 완성되면 그때 메인 스펙에 새 `[기능 N]` 섹션과 버전 changelog로 통합하고, 이 파일은 `prediction_model_spec_v1.md` 등으로 보존한다.
 
 ## 1. 배경 및 목표
 
@@ -8,7 +8,7 @@
 
 **원래 시도(`prediction_model/sample_code.py`)**: 위 CSV의 B/H/S/- 값만 원-핫 인코딩해 슬라이딩 윈도우(과거 30일 → 향후 30일 비율)로 X/y를 구성했다. 이 방식은 이미 한 번 압축된 신호(원-핫 4차원)만 입력으로 쓰기 때문에 정보 손실이 크다 — 예를 들어 "돌파 직후"와 "돌파 후 20일째"가 둘 다 그냥 `B`(또는 `H`로 전환 후)로만 보여 구분이 안 된다.
 
-**이 스펙의 접근**: 같은 목표(과거 시그널 패턴 → 향후 액션 비율 예측)를 유지하되, 입력을 원-핫 대신 `signal_engine.compute_signals`가 이미 계산해두고 버려지던 ATR/Donchian 수치까지 포함한 피처로 확장한다. 모델·학습 파이프라인은 이번 1단계 스코프가 아니다 — 먼저 그 피처 데이터셋 자체를 만들어 검증했다.
+**이 스펙의 접근**: 같은 목표(과거 시그널 패턴 → 향후 액션 비율 예측)를 유지하되, 입력을 원-핫 대신 `signal_engine.compute_signals`가 이미 계산해두고 버려지던 ATR/Donchian 수치까지 포함한 피처로 확장한다. 모델 아키텍처·학습 코드는 아직 스코프 밖이다 — 먼저 그 피처 데이터셋과 학습용 (X, y) 배열 자체를 만들어 검증했다(1~2단계, 아래 3~5절).
 
 ## 2. 데이터 파이프라인
 
@@ -51,11 +51,19 @@ def build_feature_history(tickers: dict | None = None, force_refresh: bool = Fal
 
 `data_fetcher`/`signal_engine`/`config`를 부모 디렉토리에서 import하기 위해 스크립트 상단에서 `sys.path`에 리포 루트를 추가한다(리포에 별도 패키징이 없으므로 `backtest.py` 계획과 마찬가지로 스크립트 단독 실행 전제).
 
-## 5. X/y 데이터셋 구축 (`sample_code.py` 방식, 아직 원-핫 기반 — 피처 버전으로 확장은 미구현)
+## 5. X/y 데이터셋 구축 (`prediction_model/dataset_builder.py`, 구현 완료)
 
-기존 `sample_code.py`의 슬라이딩 윈도우 골격(과거 `X_window_size`일 → 향후 `y_window_size`일 각 티커의 B/H/S 비율)은 그대로 유효한 아이디어다. 다음 단계(미구현)로 `feature_history.csv`를 같은 구조로 변환해야 한다 — `X`를 원-핫 4차원 대신 위 6개 수치 피처(+ 필요시 action 원-핫과 병행)로, 날짜×티커 순서를 맞춰 `(샘플 수, 30, 12, 피처 수)` 형태로 재구성.
+`sample_code.py`의 슬라이딩 윈도우 골격(과거 `X_window_size`일 → 향후 `y_window_size`일 각 티커의 B/H/S 비율)을 그대로 유지하되, `feature_history.csv`(3~4절)를 입력으로 쓰도록 재작성했다.
 
-**검증 시 반드시 짚어야 할 점(설계 메모, 사용자와 논의 완료)**: 슬라이딩 윈도우를 하루씩 이동하며 샘플을 뽑으면 인접 샘플끼리 최대 59일이 겹쳐 사실상 독립 표본이 아니다 — 무작위 셔플 train/test split을 쓰면 리키지가 생긴다. 실제 학습 단계에서는 **walk-forward(시간순 확장/롤링 윈도우) 검증**을 써야 한다(`triple_barrier_backtest_spec.md`가 라벨 경계에서 미래 데이터 누수를 피하는 것과 같은 원칙).
+- **`load_wide_features`**: 롱포맷 `feature_history.csv`를 `(날짜, 티커)` 기준 3차원 배열 `(전체 일수, 12, 9피처)`로 피벗한다. 9피처 = 액션 원-핫 4개(`[H, S, B, 미상장]`, `sample_code.py`와 동일한 순서) + 수치 피처 5개(`atr_norm_return`, `dist_donchian20_atr`, `dist_trailing_stop_atr`, `days_since_breakout_scaled`, `days_since_exit_scaled`). 어떤 티커가 아직 상장되지 않은 날짜(예: 2014년 이전의 BTC-USD, 2007-01-05 이전의 DBB)는 기본값으로 "미상장" 원-핫 + 중립(0) 수치 피처가 채워진다.
+  - `days_since_*`는 상한 없는 값이라 다른 피처와 스케일이 안 맞아서, `DAYS_SINCE_CAP`(252영업일 ≈ 1년)로 클리핑한 뒤 `[0, 1]`로 정규화했다 — `NaN`(그 티커 히스토리에서 아직 한 번도 발생 안 함)은 "가장 오래된 상태"와 동일하게 취급해 `1.0`으로 채운다.
+- **`build_xy`**: `X`는 30일 윈도우 원본 피처 그대로(`(N, 30, 12, 9)`), `y`는 그다음 30일간 각 티커의 액션 원-핫만 평균 내 `[B, H, S]` 비율로 재정렬한 것(`(N, 12, 3)`) — 타깃 정의 자체는 `sample_code.py`와 동일, 계산 대상 배열만 더 풍부해졌다.
+  - `y`의 세 값이 항상 1로 합산되지는 않는다는 점이 예상대로 확인됨 — 해당 30일 구간에 그 티커가 "미상장" 상태였던 날짜 비율만큼 합이 1보다 작아진다(예: BTC-USD 상장 이전 구간의 샘플은 `y` 합이 0). 버그가 아니라 설계대로의 동작.
+- **`walk_forward_split`**: 무작위 셔플이 아니라 **시간순** 분할 — 검증 구간 이전 `PURGE_GAP`(=`X_WINDOW + Y_WINDOW - 1` = 59)개 샘플은 훈련셋에서 제외한다. 인접 슬라이딩 윈도우 샘플끼리 최대 59일이 겹치므로(4절에서 논의한 리키지 문제), 이 퍼지 구간 없이 시간순으로만 자르면 훈련 샘플의 `y` 구간이 검증 구간까지 침범할 수 있다.
+
+**실행 결과 검증**: `X.shape == (6212, 30, 12, 9)`, `y.shape == (6212, 12, 3)`, 훈련 4,910 / 검증 1,243 샘플(퍼지 59개 제외), 날짜 범위 2007-01-03~2026-07-26. `X`/`y` 모두 `NaN` 없음 확인. SPY(상시 상장)는 모든 샘플에서 `y` 합이 1, BTC-USD는 상장 전 샘플에서 합이 0, 상장 후 샘플에서 합이 1 — 미상장 처리가 의도대로 동작함을 실제 배열로 확인했다.
+
+산출물은 `prediction_model/dataset.npz`(`X`, `y`, `train_idx`, `val_idx`, `tickers`, `feature_names`, `dates` 포함, 약 1.9MB)로 저장되며, `feature_history.csv`와 마찬가지로 재실행하면 그대로 다시 만들어지는 산출물이라 `.gitignore` 대상이다.
 
 ## 6. 모델 설계 방향 (미구현, 논의된 방향성만)
 
@@ -65,15 +73,14 @@ def build_feature_history(tickers: dict | None = None, force_refresh: bool = Fal
 
 ## 7. 이번 스코프에서 제외하는 것 (향후 확장 아이디어)
 
-- **모델 아키텍처 확정·학습 코드**: 이번 1단계는 피처 데이터셋 구축까지만. 다음 세션에서 별도로 착수.
-- **X/y 데이터셋 빌더를 `feature_history.csv` 기반으로 재작성**: `sample_code.py`는 여전히 원-핫 전용 — 피처 버전 빌더는 미구현.
+- **모델 아키텍처 확정·학습 코드**: 2단계까지는 데이터셋 구축만. 다음 단계에서 별도로 착수.
 - **Streamlit/일일 리포트 통합**: `triple_barrier_backtest_spec.md`와 동일하게, 이 예측 모델은 상시 서비스 기능이 아니라 로컬 연구 스크립트로 시작한다. 유의미한 결과가 나온 뒤에야 UI 노출 여부를 논의.
 - **`_signal_history.json`/크론 자동화 연동**: 이 피처 파이프라인은 수동 실행 스크립트이며 `collect.yml`/`recommend.yml`에 편입하지 않는다.
+- **`walk_forward_split`의 다중 폴드화**: 지금은 단일 train/val 분할뿐 — 여러 시점에서 반복 검증하는 롤링 walk-forward CV는 베이스라인 결과를 본 뒤 필요하면 확장.
 
 ## 8. 구현 순서 제안 (착수 시 참고용)
 
 1. ~~`feature_engineering.py` — 12개 자산군 피처 데이터셋 구축~~ (완료, 이 문서 3~4절).
-2. `feature_history.csv`를 `sample_code.py`와 같은 구조의 `(X, y)` 슬라이딩 윈도우 배열로 변환하는 빌더 작성 — 원-핫 대신 수치 피처 사용.
-3. Walk-forward 분할 함수 작성(무작위 셔플 금지) — 학습/검증 구간이 시간순으로 겹치지 않는지 단위 검증.
-4. 베이스라인 모델(그래디언트 부스팅 또는 작은 GRU) 학습 + 평가 지표 정의(예: 티커별 B/H/S 비율 예측 오차).
-5. 결과 검토 후, 더 복잡한 모델이나 Streamlit/리포트 통합 여부를 다음 단계로 논의.
+2. ~~`feature_history.csv`를 `(X, y)` 슬라이딩 윈도우 배열로 변환하는 빌더 작성 + walk-forward 분할~~ (완료, `dataset_builder.py`, 이 문서 5절).
+3. 베이스라인 모델(그래디언트 부스팅 또는 작은 GRU) 학습 + 평가 지표 정의(예: 티커별 B/H/S 비율 예측 오차, 미상장 구간은 평가에서 제외).
+4. 결과 검토 후, 더 복잡한 모델이나 Streamlit/리포트 통합 여부를 다음 단계로 논의.
