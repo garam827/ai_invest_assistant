@@ -38,10 +38,12 @@ _RECOMMENDATION_PATTERN = re.compile(r"추천\s*[:：]\s*(매수|HOLD|매도)")
 
 PORTFOLIO_OVERVIEW_SYSTEM_PROMPT = (
     "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
-    "아래는 오늘 대표 자산군 10종목의 기계적 추세추종 판정 결과다. 각 종목의 매수/HOLD/매도 판정은 "
-    "이미 규칙에 따라 확정된 사실이며, 너는 이 판정을 절대 바꾸거나 재해석하지 않는다. 다만 여러 "
-    "자산군에 걸쳐 동시에 나타나는 추세를 감정 없이 담담하게 한 문단으로 종합 해설하라 — 예를 들어 "
-    "여러 원자재가 동시에 매도 시그널을 보이면 그 사실만 담백하게 짚고, 향후 전망이나 예측은 덧붙이지 마라."
+    "아래는 오늘 대표 자산군들의 기계적 추세추종 판정 결과이고, 이어서 최근 며칠~30일간의 날짜별 "
+    "자산군별 판정 이력이 함께 주어질 수 있다. 각 판정은 이미 규칙에 따라 확정된 사실이며, 너는 이 "
+    "판정을 절대 바꾸거나 재해석하지 않는다. 다만 (1) 오늘 여러 자산군에 걸쳐 동시에 나타나는 추세와, "
+    "(2) 최근 이력이 주어졌다면 그 안에서 관찰되는 추세 전환이나 동조화(예: 최근 며칠 사이 여러 자산군이 "
+    "동시에 매수로 전환)를 감정 없이 담담한 사실 위주로 한 문단으로 종합 해설하라 — 향후 전망이나 예측은 "
+    "절대 덧붙이지 마라."
 )
 
 
@@ -129,13 +131,24 @@ def generate_recommendation(
     return {"action": action, "text": text}
 
 
-def generate_portfolio_overview(results: dict) -> str:
+def generate_portfolio_overview(results: dict, signal_history: dict | None = None) -> str:
     """One-paragraph cross-asset synthesis across the day's ASSET_CLASS_TICKERS results
     (report_builder.build_daily_report_html's LLM overview section). Commentary only —
     never changes any individual ticker's mechanical action.
+
+    `signal_history` ({date: {ticker: action}}, optional, already windowed by the caller —
+    see recommendation_engine._recent_signal_history) lets the synthesis also note trend
+    shifts/synchronization across recent days, not just today's snapshot. Omitted if not given.
     """
     lines = ["[오늘의 자산군별 판정]"]
     for ticker, reco in results.items():
         lines.append(f"- {ticker}: {reco['action']} (종가 {reco['close']:.2f})")
-    prompt = "\n".join(lines) + "\n\n위 10개 자산군의 판정을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
+
+    if signal_history:
+        lines.append("\n[최근 시그널 이력 (날짜: 자산군=액션, ...)]")
+        for date in sorted(signal_history, reverse=True):
+            actions_str = ", ".join(f"{ticker}={action}" for ticker, action in signal_history[date].items())
+            lines.append(f"- {date}: {actions_str}")
+
+    prompt = "\n".join(lines) + "\n\n위 오늘의 판정과 최근 시그널 이력을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
     return _call_chat(PORTFOLIO_OVERVIEW_SYSTEM_PROMPT, prompt)

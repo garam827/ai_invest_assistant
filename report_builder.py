@@ -289,16 +289,18 @@ def build_daily_report_html(
 
     `signal_history` ({date: {ticker: action}}, already windowed by the caller — see
     recommendation_engine._recent_signal_history) is likewise optional, omitted if empty
-    (see _build_signal_history_html). report_builder.py can't import recommendation_engine
-    itself (recommendation_engine already imports report_builder — a back-import would be
-    circular), so the caller always loads and passes this in, same as paper_positions.
+    (see _build_signal_history_html); it's also fed to the LLM overview (generate_portfolio_
+    overview) so that narrative can note recent trend shifts, not just today's snapshot.
+    report_builder.py can't import recommendation_engine itself (recommendation_engine already
+    imports report_builder — a back-import would be circular), so the caller always loads and
+    passes this in, same as paper_positions.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
     overview = ""
     if not config.SKIP_LLM_AND_NEWS:
         try:
-            overview = openrouter_briefing.generate_portfolio_overview(results)
+            overview = openrouter_briefing.generate_portfolio_overview(results, signal_history)
         except Exception:
             pass
 
