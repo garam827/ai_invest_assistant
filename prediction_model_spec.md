@@ -1,6 +1,6 @@
-# 스펙: 자산군 시그널 예측 모델 (설계안, 3단계 구현 — 베이스라인 완료)
+# 스펙: 자산군 시그널 예측 모델 (설계안, 4단계 구현 — 일일 리포트 통합 완료)
 
-> **상태: 3단계(베이스라인 모델 학습·평가) 구현 완료 — 더 복잡한 모델·Streamlit 통합은 미구현.** 이 문서는 `investment_assistant_spec.md`(메인 스펙)와 별도로 관리한다. `paper_trading_spec.md`/`triple_barrier_backtest_spec.md`와 같은 성격의 문서 — 실제 모델까지 완성되면 그때 메인 스펙에 새 `[기능 N]` 섹션과 버전 changelog로 통합하고, 이 파일은 `prediction_model_spec_v1.md` 등으로 보존한다.
+> **상태: 4단계(일일 리포트 통합) 구현 완료 — 더 복잡한 모델·Streamlit UI 통합은 미구현.** 이 문서는 `investment_assistant_spec.md`(메인 스펙)와 별도로 관리하되, 4단계부터는 `report_builder.py`/`recommendation_engine.py`(프로덕션 모듈)를 실제로 건드리므로 그 변경 자체는 메인 스펙 v3.41 changelog와 `CLAUDE.md`에도 함께 기록했다 — `prediction_model/` 안의 학습·데이터 파이프라인 자체는 여전히 이 문서에서만 관리하는 "로컬 연구" 영역, 그 산출물을 프로덕션 리포트가 읽어가는 지점만 메인 스펙에도 반영하는 이원 구조다. `paper_trading_spec.md`가 구현 완료 후 메인 스펙에 완전히 흡수된 것과 달리, 이 스펙은 학습 파이프라인이 계속 로컬 전용으로 남아있는 한 계속 별도 문서로 유지한다.
 
 ## 1. 배경 및 목표
 
@@ -94,17 +94,27 @@ def build_feature_history(tickers: dict | None = None, force_refresh: bool = Fal
 
 모델 파일(`prediction_model/models/{ticker}_rf.joblib`, 약 47MB)과 결과 CSV는 재실행하면 다시 만들어지는 산출물이라 `.gitignore` 대상이다.
 
-## 7. 이번 스코프에서 제외하는 것 (향후 확장 아이디어)
+## 7. 일일 리포트 통합 (`prediction_model/generate_predictions.py` + `report_builder.py`, 구현 완료)
+
+사용자가 "베이스라인 결과가 나온 상태에서 바로 리포트에 넣고, 대신 신뢰도를 같이 보여주자"고 결정 — 원래 이 문서 초안에서 "유의미한 결과가 나온 뒤에야 논의"로 미뤄뒀던 항목이지만, 신뢰도(검증 MAE 개선율)를 함께 노출하는 조건으로 먼저 붙였다.
+
+- **크론은 여전히 학습·예측을 하지 않는다**: `prediction_model/generate_predictions.py`(로컬/수동 실행)가 `train_baseline.py`가 저장한 모델(`prediction_model/models/*.joblib`)로 최신 30일 윈도우에 대한 예측을 만들어, Drive에 `_prediction_simulation.json`으로 저장한다. `recommendation_engine.run_asset_class_recommendations`는 그 파일을 `drive_db.load_json`으로 **읽기만** 한다 — 파일이 없거나 로드 실패해도 다른 선택적 섹션(모의 투자, 시그널 이력)과 동일하게 그 섹션만 생략된다. 필터명 상수(`_prediction_simulation.json`)는 `recommendation_engine.PREDICTION_SIMULATION_FILENAME`과 `generate_predictions.PREDICTION_SIMULATION_FILENAME` 두 곳에 각각 정의돼 있으므로(순환 참조 방지를 위해 `prediction_model/`을 프로덕션 모듈이 import하지 않음, 4절 참고) 파일명을 바꿀 땐 두 곳 다 같이 고칠 것.
+- **버그: "가장 최근 날짜"가 종목마다 다름**: 최초 구현은 `feature_history.csv`를 피벗한 전체 배열의 마지막 행(모든 티커 공통 날짜축의 최신 날짜)을 그대로 예측 시점으로 썼다. 그런데 BTC-USD는 주말에도 거래해 배열의 마지막 행이 토요일/일요일이 되는 경우가 있고, 그날은 나머지 11개 자산군엔 애초에 시세 자체가 없어 "미상장" 원-핫으로 채워진다(2절/`dataset_builder.py`의 union-of-dates 처리와 동일한 원리) — 그 결과 실제 실행에서 BTC-USD 하나만 예측되고 나머지 11개는 전부 스킵되는 문제가 발생했다. `generate_predictions._latest_window(array, ticker_idx, x_window)`로 수정해, 티커마다 "그 티커 자신의 마지막 실제 거래일"까지 배열을 거슬러 올라가 그 날짜로 끝나는 30일 윈도우를 찾도록 고쳤다. 그 결과 `_prediction_simulation.json`의 각 티커 예측에 자기 자신의 `as_of_date`가 따로 붙는다(주식/ETF는 보통 금요일, BTC-USD는 그 이후 주말 날짜까지) — 리포트 표에도 "기준일" 컬럼으로 그대로 노출한다.
+- **`report_builder._build_prediction_simulation_html`**: "AI 예측 시뮬레이션 (실험적)" 섹션을 페이지 맨 끝(HOLD 차트 블록 뒤)에 추가 — 표(티커/자산/기준일/예상 매수·HOLD·매도%/신뢰도)와 함께, 노란 경고색 `.prediction-disclaimer` 박스로 "위 기계적 판정과는 완전히 별개이며 그 판정을 절대 대체하지 않는다"를 명시한다(LLM 총평·일목균형표와 동일한 advisory-only 원칙, 이 문서의 CLAUDE.md 규칙 16 참고). "신뢰도" 컬럼은 `train_baseline.py`가 계산해둔 `improvement_pct`(단순 평균 예측 대비 검증 MAE 개선율, %) 그대로 — 절대적인 정확도 보증이 아니라는 문구도 함께 넣었다.
+- **검증**: 실제 Drive의 `feature_history.csv`/학습된 모델로 `generate_predictions.py`를 재실행해 12개 자산군 전부 정상적으로 예측이 생성되고(수정 전엔 1개만) `_prediction_simulation.json`이 Drive에 저장되는 것을 확인, `report_builder.build_daily_report_html`을 그 실제 데이터로 로컬 호출해 표/경고 문구가 의도대로 렌더링되는 것도 확인했다.
+
+## 8. 이번 스코프에서 제외하는 것 (향후 확장 아이디어)
 
 - **더 복잡한 모델**: 그래디언트 부스팅(LightGBM), 시퀀스 모델(GRU/LSTM), 자산군 간 교차 신호를 함께 쓰는 멀티-티커 모델 — 베이스라인이 하한선을 넘긴 것만 확인된 상태라, 다음 단계로 시도해볼 후보들.
-- **Streamlit/일일 리포트 통합**: `triple_barrier_backtest_spec.md`와 동일하게, 이 예측 모델은 상시 서비스 기능이 아니라 로컬 연구 스크립트로 시작한다. 유의미한 결과가 나온 뒤에야 UI 노출 여부를 논의.
-- **`_signal_history.json`/크론 자동화 연동**: 이 피처 파이프라인은 수동 실행 스크립트이며 `collect.yml`/`recommend.yml`에 편입하지 않는다.
+- **Streamlit UI 통합**: 리포트에는 붙었지만(7절), Streamlit 탭에 노출하는 건 아직 스코프 밖 — 필요하면 별도로 논의.
+- **모델 학습·예측 생성의 크론 자동화**: `generate_predictions.py`를 포함한 `prediction_model/`의 모든 스크립트는 여전히 수동 실행이며 `collect.yml`/`recommend.yml`에 편입하지 않는다(7절 "크론은 여전히 학습·예측을 하지 않는다" 참고) — 리포트가 매번 최신 30일 윈도우로 예측을 갱신하려면, 이 파이프라인 전체를 크론에 편입해야 하는데 그건 이번 스코프가 아니다. 지금은 마지막으로 수동 실행한 시점의 예측이 그대로 리포트에 반복 노출된다(각 티커의 `as_of_date`로 신선도를 확인 가능).
 - **`walk_forward_split`의 다중 폴드화**: 지금은 단일 train/val 분할뿐 — 여러 시점에서 반복 검증하는 롤링 walk-forward CV는 필요하면 확장.
 - **하이퍼파라미터 튜닝**: `RandomForestRegressor`는 고정값(`n_estimators=200, max_depth=8, min_samples_leaf=5`)만 썼다 — 그리드서치 등은 베이스라인 유효성을 먼저 확인한 뒤의 과제.
 
-## 8. 구현 순서 제안 (착수 시 참고용)
+## 9. 구현 순서 제안 (착수 시 참고용)
 
 1. ~~`feature_engineering.py` — 12개 자산군 피처 데이터셋 구축~~ (완료, 이 문서 3~4절).
 2. ~~`feature_history.csv`를 `(X, y)` 슬라이딩 윈도우 배열로 변환하는 빌더 작성 + walk-forward 분할~~ (완료, `dataset_builder.py`, 이 문서 5절).
 3. ~~베이스라인 모델 학습 + 평가~~ (완료, `train_baseline.py`, 이 문서 6절 — 12개 자산군 전부 단순 평균 베이스라인보다 낮은 MAE).
-4. 결과 검토 후, 더 복잡한 모델이나 Streamlit/리포트 통합 여부를 다음 단계로 논의(7절 참고).
+4. ~~일일 리포트 통합~~ (완료, `generate_predictions.py` + `report_builder.py`, 이 문서 7절).
+5. 결과 검토 후, 더 복잡한 모델이나 Streamlit UI 통합 여부를 다음 단계로 논의(8절 참고).

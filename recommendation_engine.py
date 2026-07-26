@@ -42,6 +42,11 @@ RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 # table's per-ticker action columns. Real dates only — see run_asset_class_recommendations.
 SIGNAL_HISTORY_FILENAME = "_signal_history.json"
 
+# Written by prediction_model/generate_predictions.py (manual/local, see
+# prediction_model_spec.md) -- this filename must stay in sync with that script's own
+# PREDICTION_SIMULATION_FILENAME constant. Read-only here; this cron path never writes it.
+PREDICTION_SIMULATION_FILENAME = "_prediction_simulation.json"
+
 
 def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
@@ -388,11 +393,25 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         logger.exception("Failed to load signal history (report will omit this section)")
         recent_history = {}
 
+    # Experimental ML prediction simulation (prediction_model/generate_predictions.py) —
+    # trained/refreshed entirely outside this cron path, this just reads whatever was last
+    # published to Drive. Missing (never generated yet) or a load failure both degrade to
+    # simply omitting the report section, same as the other optional sections above.
+    try:
+        prediction_simulation = drive_db.load_json(PREDICTION_SIMULATION_FILENAME)
+    except Exception:
+        logger.exception("Failed to load prediction simulation (report will omit this section)")
+        prediction_simulation = None
+
     report_url = None
     if results:
         try:
             report_html = report_builder.build_daily_report_html(
-                drive_db, results, paper_positions=open_positions, signal_history=recent_history
+                drive_db,
+                results,
+                paper_positions=open_positions,
+                signal_history=recent_history,
+                prediction_simulation=prediction_simulation,
             )
             report_builder.save_report(drive_db, report_date, report_html)
             # A test publish is never committed to docs/reports (see report_builder.save_report),

@@ -72,6 +72,7 @@ STYLE = """
   .hold-chart-block h4 { margin-bottom: 0.3rem; }
   .pnl-positive { color: #2e7d32; font-weight: bold; }
   .pnl-negative { color: #c62828; font-weight: bold; }
+  .prediction-disclaimer { background: #fff8e1; border-left: 4px solid #f9a825; padding: 0.8rem 1rem; margin: 0.6rem 0; font-size: 0.85rem; color: #5d4a1a; }
 """
 
 
@@ -142,6 +143,58 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
+
+
+def _build_prediction_simulation_html(prediction_simulation: dict | None) -> str:
+    """prediction_simulation: prediction_model/generate_predictions.py's output
+    ({"generated_at": ..., "predictions": {ticker: {as_of_date, buy_pct, hold_pct, sell_pct,
+    val_mae, baseline_mae, improvement_pct}}}), loaded read-only from Drive by the caller
+    (recommendation_engine) -- this experimental ML model is trained/refreshed manually,
+    entirely outside collect.yml/recommend.yml (see prediction_model_spec.md section 7).
+
+    Each ticker carries its own `as_of_date` rather than one report-wide date -- BTC-USD
+    trades on weekends and nothing else here does, so "the most recent date" can genuinely
+    differ per ticker (see generate_predictions.py's _latest_window).
+
+    Explicitly experimental and unvalidated beyond a single train/val split -- rendered
+    with a disclaimer and each ticker's own validation MAE improvement over a naive
+    "predict the historical average" baseline as a rough reliability indicator, so a
+    reader isn't left guessing how much to trust it. Never reorders or replaces the
+    mechanical 매수/HOLD/매도 signals elsewhere in the report -- same "advisory-only"
+    principle as the LLM sections. Omitted entirely if not given/empty.
+    """
+    if not prediction_simulation or not prediction_simulation.get("predictions"):
+        return ""
+
+    rows = []
+    for ticker, pred in prediction_simulation["predictions"].items():
+        meta = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {})
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(ticker)}</td>"
+            f"<td>{_esc(meta.get('label', ''))}</td>"
+            f"<td>{_esc(pred.get('as_of_date', ''))}</td>"
+            f"<td>{pred['buy_pct']:.1f}%</td>"
+            f"<td>{pred['hold_pct']:.1f}%</td>"
+            f"<td>{pred['sell_pct']:.1f}%</td>"
+            f"<td>{pred['improvement_pct']:.1f}%</td>"
+            "</tr>"
+        )
+    table = (
+        "<table class='summary'><thead><tr>"
+        "<th>티커</th><th>자산</th><th>기준일</th><th>예상 매수%</th><th>예상 HOLD%</th><th>예상 매도%</th>"
+        "<th>신뢰도(단순평균 대비 개선율)</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+    disclaimer = (
+        "<div class='prediction-disclaimer'>이 표는 과거 시그널·가격 패턴으로 학습한 실험적 "
+        "머신러닝 모델이 향후 30일간의 매수/HOLD/매도 비율을 추정한 것입니다 — 위의 매수/HOLD/매도 "
+        "판정(기계적 규칙 기반)과는 완전히 별개이며, 어떤 경우에도 그 판정을 대체하거나 바꾸지 "
+        "않습니다. \"신뢰도\"는 검증 구간에서 단순 평균 예측 대비 오차(MAE)가 얼마나 줄었는지를 "
+        "나타내며, 수치가 낮다고 예측이 틀렸다는 뜻은 아니지만 참고용 이상으로 받아들이지 마세요."
+        "</div>"
+    )
+    return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{table}"
 
 
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
@@ -280,6 +333,7 @@ def build_daily_report_html(
     results: dict,
     paper_positions: list[dict] | None = None,
     signal_history: dict | None = None,
+    prediction_simulation: dict | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
 
@@ -294,6 +348,11 @@ def build_daily_report_html(
     report_builder.py can't import recommendation_engine itself (recommendation_engine already
     imports report_builder — a back-import would be circular), so the caller always loads and
     passes this in, same as paper_positions.
+
+    `prediction_simulation` (prediction_model/generate_predictions.py's output, loaded
+    read-only from Drive's _prediction_simulation.json by the caller) is likewise optional,
+    omitted if not given/empty (see _build_prediction_simulation_html) — an experimental ML
+    model trained/refreshed entirely outside this cron path (see prediction_model_spec.md).
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
@@ -308,6 +367,7 @@ def build_daily_report_html(
     table_html = _build_summary_table_html(results)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
+    prediction_html = _build_prediction_simulation_html(prediction_simulation)
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
@@ -333,6 +393,7 @@ def build_daily_report_html(
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
+{prediction_html}
 </body>
 </html>"""
 
