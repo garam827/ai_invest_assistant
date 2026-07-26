@@ -161,11 +161,15 @@ PREDICTION_COMMENTARY_SYSTEM_PROMPT = (
     "과거 시그널 패턴만으로 학습됐고 검증이 제한적이다(단순 평균 예측 대비 소폭 개선 수준). "
     "각 자산의 예측값은 그 자산 자신의 과거 평균 점수와 함께 주어진다 — 점수가 음수인 것 "
     "자체는 매수(신고점 갱신, 하루짜리 이벤트)보다 매도(트레일링 스탑 하회, 여러 날 지속되는 "
-    "상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. 오직 (1) 이번 예측이 그 "
-    "자산의 과거 평균보다 높은지 낮은지, (2) 여러 자산군에 걸쳐 공통으로 나타나는 패턴만 감정 "
-    "없이 담담한 사실 위주로 짚어라. 이 해설은 이 실험적 모델의 결과를 설명하는 것일 뿐이며, "
-    "실제 매수/HOLD/매도 판정(기계적 규칙 기반)을 절대 바꾸거나 재해석하지 않고, 향후 가격이나 "
-    "방향성을 예측·전망하는 문장도 쓰지 마라."
+    "상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. (1) 이번 예측이 그 자산의 "
+    "과거 평균보다 높은지 낮은지, (2) 여러 자산군에 걸쳐 공통으로 나타나는 패턴을 감정 없이 "
+    "담담한 사실 위주로 짚어라. 추가로 (3) 주식/암호화폐 같은 경기민감 자산군과 채권/통화 같은 "
+    "안전자산군 사이에서 이 패턴이 상대적으로 어떻게 갈리는지를 근거로, 이것이 통상적인 경기 "
+    "사이클(확장기/후기 확장기/수축기/회복기 등) 중 어떤 국면과 유사한 특징을 보이는지 참고 삼아 "
+    "짧게 고찰해도 좋다 — 다만 이는 어디까지나 지금 나타난 자산군 간 상대적 패턴에 대한 참고적 "
+    "해석일 뿐, 특정 자산의 향후 가격이나 방향성을 예측·전망하는 것이 아니며 확신에 찬 단정적 "
+    "표현도 쓰지 마라. 이 해설은 이 실험적 모델의 결과를 설명하는 것일 뿐이며, 실제 매수/HOLD/매도 "
+    "판정(기계적 규칙 기반)을 절대 바꾸거나 재해석하지 않는다."
 )
 
 
@@ -177,10 +181,16 @@ def generate_prediction_commentary(predictions: dict) -> str:
 
     Commentary only — explicitly forbidden (see PREDICTION_COMMENTARY_SYSTEM_PROMPT) from
     predicting future price/direction or influencing any mechanical action, same
-    advisory-only principle as generate_portfolio_overview/generate_recommendation.
+    advisory-only principle as generate_portfolio_overview/generate_recommendation. May
+    also reflect on which economic-cycle phase the cross-asset pattern resembles (user
+    request) -- scoped to a qualitative read of today's relative pattern, not a forecast.
     """
     lines = ["[자산군별 추세 점수 (실험적 ML 예측)]"]
     for ticker, pred in predictions.items():
         lines.append(f"- {ticker}: 예측 {pred['trend_score']:+.3f} (과거 평균 {pred['historical_avg_score']:+.3f})")
-    prompt = "\n".join(lines) + "\n\n위 자산군별 추세 점수를 각 자산의 과거 평균과 비교해 한 문단으로 요약하라."
+    prompt = (
+        "\n".join(lines)
+        + "\n\n위 자산군별 추세 점수를 각 자산의 과거 평균과 비교해 요약하고, "
+        "이 패턴이 어떤 경기 사이클 국면과 유사한지도 참고 삼아 짚어 한 문단으로 정리하라."
+    )
     return _call_chat(PREDICTION_COMMENTARY_SYSTEM_PROMPT, prompt)

@@ -181,12 +181,24 @@ def _build_prediction_simulation_html(prediction_simulation: dict | None, commen
     mechanical 매수/HOLD/매도 signals elsewhere in the report -- same "advisory-only"
     principle as the LLM sections. Omitted entirely if not given/empty.
     """
-    if not prediction_simulation or not prediction_simulation.get("predictions"):
+    predictions = (prediction_simulation or {}).get("predictions") or {}
+    if not predictions:
         return ""
 
+    # Same ticker order + category grouping as _build_summary_table_html, so the two
+    # tables read as directly comparable rather than one being alphabetical (the order
+    # generate_predictions.py happens to iterate its wide-format ticker array in) and the
+    # other grouped by ASSET_CLASS_TICKERS' definition order.
     rows = []
-    for ticker, pred in prediction_simulation["predictions"].items():
-        meta = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {})
+    last_category = None
+    for ticker, meta in data_fetcher.ASSET_CLASS_TICKERS.items():
+        if ticker not in predictions:
+            continue
+        pred = predictions[ticker]
+        category = meta.get("category", "")
+        if category != last_category:
+            rows.append(f"<tr class='category-row'><td colspan='6'>{_esc(category)}</td></tr>")
+            last_category = category
         score_class = "pnl-positive" if pred["trend_score"] >= pred["historical_avg_score"] else "pnl-negative"
         rows.append(
             "<tr>"
