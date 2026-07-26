@@ -16,3 +16,4 @@ token.json
 prediction_model/ohlcv_cache/
 prediction_model/*.csv
 prediction_model/*.npz
+prediction_model/models/
