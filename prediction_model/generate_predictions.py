@@ -1,8 +1,9 @@
 """Runs the trained baseline models (train_baseline.py) on the most recent 30-day window
-to produce a "next 30 days" 매수/HOLD/매도 proportion prediction per ticker, packaged with
-each model's own validation reliability (baseline_results.csv), and publishes the result
-to Drive as _prediction_simulation.json for the daily report to read (report_builder.py's
-_build_prediction_simulation_html, wired through recommendation_engine.py).
+to produce a "next 30 days" log((매수일+1)/(매도일+1)) trend-score prediction per ticker,
+packaged with each model's own validation reliability and historical average score
+(baseline_results.csv), and publishes the result to Drive as _prediction_simulation.json
+for the daily report to read (report_builder.py's _build_prediction_simulation_html,
+wired through recommendation_engine.py).
 
 Manual/local script -- NOT part of collect.yml/recommend.yml (same principle as the rest
 of prediction_model/, see prediction_model_spec.md section 7). Run this after retraining
@@ -40,6 +41,7 @@ def _load_reliability(path: str = RESULTS_PATH) -> dict[str, dict]:
                 "val_mae": round(mae, 4),
                 "baseline_mae": round(baseline_mae, 4),
                 "improvement_pct": round(100 * (baseline_mae - mae) / baseline_mae, 1),
+                "historical_avg_score": round(float(row["historical_avg_score"]), 3),
             }
     return reliability
 
@@ -76,13 +78,11 @@ def generate_predictions(feature_history_path: str = FEATURE_HISTORY_PATH) -> di
             continue
 
         model = joblib.load(model_path)
-        buy, hold, sell = np.clip(model.predict(window.reshape(1, -1))[0], 0.0, 1.0)
+        trend_score = float(model.predict(window.reshape(1, -1))[0])
 
         predictions[ticker] = {
             "as_of_date": dates[end_idx],
-            "buy_pct": round(float(buy) * 100, 1),
-            "hold_pct": round(float(hold) * 100, 1),
-            "sell_pct": round(float(sell) * 100, 1),
+            "trend_score": round(trend_score, 3),
             **reliability[ticker],
         }
 
@@ -101,8 +101,8 @@ if __name__ == "__main__":
     result = generate_predictions()
     for ticker, pred in result["predictions"].items():
         print(
-            f"{ticker:<10} ({pred['as_of_date']})  B {pred['buy_pct']:>5.1f}%  "
-            f"H {pred['hold_pct']:>5.1f}%  S {pred['sell_pct']:>5.1f}%  (개선율 {pred['improvement_pct']}%)"
+            f"{ticker:<10} ({pred['as_of_date']})  추세점수 {pred['trend_score']:>+7.3f}  "
+            f"(과거 평균 {pred['historical_avg_score']:>+7.3f}, 개선율 {pred['improvement_pct']}%)"
         )
     save_to_drive(result)
     print(f"\nSaved to Drive as {PREDICTION_SIMULATION_FILENAME}")

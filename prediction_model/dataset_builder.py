@@ -23,8 +23,7 @@ VAL_FRACTION = 0.2
 # bleed across the train/val boundary is dropped from train (see walk_forward_split).
 PURGE_GAP = X_WINDOW + Y_WINDOW - 1
 
-# One-hot action order matches sample_code.py's original mapping ([H, S, B, -]) so the
-# y-target reordering below (mean_probs[:, [2, 0, 1]] -> [B, H, S]) stays consistent.
+# One-hot action order matches sample_code.py's original mapping.
 ACTION_ORDER = ["H", "S", "B", "-"]
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
 N_ACTION_FEATURES = len(ACTION_ORDER)
@@ -85,17 +84,31 @@ def load_wide_features(path: str = FEATURE_HISTORY_PATH) -> tuple[list[str], lis
 
 def build_xy(array: np.ndarray, x_window: int = X_WINDOW, y_window: int = Y_WINDOW) -> tuple[np.ndarray, np.ndarray]:
     """X: (N, x_window, n_tickers, N_FEATURES) -- the raw feature window.
-    y: (N, n_tickers, 3) -- [매수, HOLD, 매도] proportion over the following y_window days,
-    derived only from the action one-hot part of the array (same target definition as
-    sample_code.py, just computed from the richer array here).
+    y: (N, n_tickers) -- a smoothed log-ratio "trend score" for the following y_window
+    days: log((buy_day_count + 1) / (sell_day_count + 1)), where buy/sell day counts come
+    only from the 매수/매도 one-hot slots (HOLD and "unlisted" days are irrelevant to a
+    ratio of the other two, unlike the earlier [매수, HOLD, 매도] proportion target this
+    replaced -- see prediction_model_spec.md section 6 for why that target's three values
+    didn't sum to 100% for weekday-only tickers).
+
+    +1 (Laplace) smoothing avoids a division-by-zero when a 30-day window has zero buy or
+    zero sell days, which is common -- 매수 (a fresh Donchian breakout) is a one-day
+    punctuated event, while 매도 (closing below the trailing stop) is a state that can
+    persist for many consecutive days during a drawdown, so 매도 day-counts are
+    structurally larger than 매수 day-counts across nearly every one of these 12 tickers'
+    full history (see prediction_model_spec.md section 6.1) -- a negative score is the
+    structural norm, not evidence of a bearish read on its own; what matters is a ticker's
+    score relative to its own historical average, not its distance from zero.
     """
     n_days = array.shape[0]
+    buy_idx, sell_idx = ACTION_ORDER.index("B"), ACTION_ORDER.index("S")
     X_list, y_list = [], []
     for start in range(n_days - x_window - y_window + 1):
         X_list.append(array[start : start + x_window])
-        y_onehot = array[start + x_window : start + x_window + y_window, :, :N_ACTION_FEATURES]
-        mean_probs = y_onehot.mean(axis=0)  # (n_tickers, 4), order [H, S, B, -]
-        y_list.append(mean_probs[:, [2, 0, 1]])  # reorder to [B, H, S]
+        y_window_slice = array[start + x_window : start + x_window + y_window, :, :N_ACTION_FEATURES]
+        buy_days = y_window_slice[:, :, buy_idx].sum(axis=0)  # (n_tickers,)
+        sell_days = y_window_slice[:, :, sell_idx].sum(axis=0)
+        y_list.append(np.log((buy_days + 1) / (sell_days + 1)))
     return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.float32)
 
 
@@ -132,7 +145,7 @@ def build_dataset(feature_history_path: str = FEATURE_HISTORY_PATH, save_path: s
 if __name__ == "__main__":
     X, y, train_idx, val_idx, tickers, dates = build_dataset()
     print(f"X shape: {X.shape}  (samples, {X_WINDOW}-day window, {len(tickers)} tickers, {N_FEATURES} features)")
-    print(f"y shape: {y.shape}  (samples, {len(tickers)} tickers, [매수, HOLD, 매도] proportions)")
+    print(f"y shape: {y.shape}  (samples, {len(tickers)} tickers -- log((매수일+1)/(매도일+1)) trend score)")
     print(f"train samples: {len(train_idx)}, val samples: {len(val_idx)} (purge gap: {PURGE_GAP})")
     print(f"date range: {dates[0]} ~ {dates[-1]}")
     print(f"saved to: {DATASET_PATH}")

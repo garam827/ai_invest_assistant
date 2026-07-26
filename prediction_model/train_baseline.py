@@ -1,6 +1,6 @@
 """Baseline model for prediction_model_spec.md step 3: one RandomForestRegressor per
 ticker, trained on that ticker's own 30-day feature window (dataset_builder.py's X/y),
-predicting the next-30-day [매수, HOLD, 매도] proportions.
+predicting the next-30-day log((매수일+1)/(매도일+1)) trend score.
 
 Deliberately simple -- scikit-learn only (no new dependency), one single-asset model per
 ticker rather than a cross-asset sequence model. See prediction_model_spec.md section 6:
@@ -49,23 +49,26 @@ def train_ticker_model(X: np.ndarray, y: np.ndarray, train_idx: np.ndarray, val_
     val_idx = _listed_samples(X, val_idx, ticker_idx)
 
     X_train = X[train_idx, :, ticker_idx, :].reshape(len(train_idx), -1)
-    y_train = y[train_idx, ticker_idx, :]
+    y_train = y[train_idx, ticker_idx]
     X_val = X[val_idx, :, ticker_idx, :].reshape(len(val_idx), -1)
-    y_val = y[val_idx, ticker_idx, :]
+    y_val = y[val_idx, ticker_idx]
 
     model = RandomForestRegressor(
         n_estimators=200, max_depth=8, min_samples_leaf=5, random_state=42, n_jobs=-1
     )
     model.fit(X_train, y_train)
-    pred = np.clip(model.predict(X_val), 0.0, 1.0)
+    pred = model.predict(X_val)
     mae = mean_absolute_error(y_val, pred)
 
-    # Naive baseline: always predict the train-set's average B/H/S proportion. A model
-    # that can't beat this isn't learning anything from the 30-day window shape itself.
-    baseline_pred = np.tile(y_train.mean(axis=0), (len(y_val), 1))
+    # Naive baseline: always predict the train-set's average trend score (this ticker's
+    # own historical center, structurally negative for nearly all 12 tickers -- see
+    # dataset_builder.build_xy's docstring). A model that can't beat this isn't learning
+    # anything from the 30-day window shape itself.
+    historical_avg_score = float(y_train.mean())
+    baseline_pred = np.full(len(y_val), historical_avg_score)
     baseline_mae = mean_absolute_error(y_val, baseline_pred)
 
-    return model, mae, baseline_mae, len(train_idx), len(val_idx)
+    return model, mae, baseline_mae, historical_avg_score, len(train_idx), len(val_idx)
 
 
 def train_all(save_models: bool = True) -> list[dict]:
@@ -74,13 +77,16 @@ def train_all(save_models: bool = True) -> list[dict]:
 
     results = []
     for i, ticker in enumerate(tickers):
-        model, mae, baseline_mae, n_train, n_val = train_ticker_model(X, y, train_idx, val_idx, i)
+        model, mae, baseline_mae, historical_avg_score, n_train, n_val = train_ticker_model(
+            X, y, train_idx, val_idx, i
+        )
         results.append(
             {
                 "ticker": ticker,
                 "mae": mae,
                 "baseline_mae": baseline_mae,
                 "improvement": baseline_mae - mae,
+                "historical_avg_score": historical_avg_score,
                 "n_train": n_train,
                 "n_val": n_val,
             }
@@ -96,11 +102,15 @@ if __name__ == "__main__":
 
     results = sorted(train_all(), key=lambda r: -r["improvement"])
 
-    print(f"{'Ticker':<10}{'MAE':>10}{'Baseline MAE':>15}{'Improvement':>13}{'n_train':>10}{'n_val':>8}")
+    print(
+        f"{'Ticker':<10}{'MAE':>10}{'Baseline MAE':>15}{'Improvement':>13}"
+        f"{'Hist. avg score':>17}{'n_train':>10}{'n_val':>8}"
+    )
     for r in results:
         print(
             f"{r['ticker']:<10}{r['mae']:>10.4f}{r['baseline_mae']:>15.4f}"
-            f"{r['improvement']:>13.4f}{r['n_train']:>10}{r['n_val']:>8}"
+            f"{r['improvement']:>13.4f}{r['historical_avg_score']:>17.4f}"
+            f"{r['n_train']:>10}{r['n_val']:>8}"
         )
 
     os.makedirs(MODEL_DIR, exist_ok=True)

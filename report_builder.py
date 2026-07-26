@@ -147,10 +147,20 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
 
 def _build_prediction_simulation_html(prediction_simulation: dict | None) -> str:
     """prediction_simulation: prediction_model/generate_predictions.py's output
-    ({"generated_at": ..., "predictions": {ticker: {as_of_date, buy_pct, hold_pct, sell_pct,
-    val_mae, baseline_mae, improvement_pct}}}), loaded read-only from Drive by the caller
-    (recommendation_engine) -- this experimental ML model is trained/refreshed manually,
-    entirely outside collect.yml/recommend.yml (see prediction_model_spec.md section 7).
+    ({"generated_at": ..., "predictions": {ticker: {as_of_date, trend_score, val_mae,
+    baseline_mae, improvement_pct, historical_avg_score}}}), loaded read-only from Drive by
+    the caller (recommendation_engine) -- this experimental ML model is trained/refreshed
+    manually, entirely outside collect.yml/recommend.yml (see prediction_model_spec.md
+    section 7).
+
+    `trend_score` is log((매수일+1)/(매도일+1)) over the predicted next 30 days — positive
+    means fresh breakouts (매수) outnumber trailing-stop breaches (매도), negative the
+    opposite. It's compared against `historical_avg_score` (that ticker's own long-run
+    average) rather than against zero, because 매도 structurally outnumbers 매수 for nearly
+    every one of these 12 tickers (매수 = a one-day breakout event; 매도 = a state that can
+    persist for many days during a drawdown) — a negative score is the norm, not a red flag
+    on its own (see prediction_model_spec.md section 6.1 and the disclaimer text below,
+    which explains this directly in the report itself per user request).
 
     Each ticker carries its own `as_of_date` rather than one report-wide date -- BTC-USD
     trades on weekends and nothing else here does, so "the most recent date" can genuinely
@@ -169,29 +179,38 @@ def _build_prediction_simulation_html(prediction_simulation: dict | None) -> str
     rows = []
     for ticker, pred in prediction_simulation["predictions"].items():
         meta = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {})
+        score_class = "pnl-positive" if pred["trend_score"] >= pred["historical_avg_score"] else "pnl-negative"
         rows.append(
             "<tr>"
             f"<td>{_esc(ticker)}</td>"
             f"<td>{_esc(meta.get('label', ''))}</td>"
             f"<td>{_esc(pred.get('as_of_date', ''))}</td>"
-            f"<td>{pred['buy_pct']:.1f}%</td>"
-            f"<td>{pred['hold_pct']:.1f}%</td>"
-            f"<td>{pred['sell_pct']:.1f}%</td>"
+            f"<td class='{score_class}'>{pred['trend_score']:+.3f}</td>"
+            f"<td>{pred['historical_avg_score']:+.3f}</td>"
             f"<td>{pred['improvement_pct']:.1f}%</td>"
             "</tr>"
         )
     table = (
         "<table class='summary'><thead><tr>"
-        "<th>티커</th><th>자산</th><th>기준일</th><th>예상 매수%</th><th>예상 HOLD%</th><th>예상 매도%</th>"
+        "<th>티커</th><th>자산</th><th>기준일</th><th>추세 점수(예측)</th><th>과거 평균 점수</th>"
         "<th>신뢰도(단순평균 대비 개선율)</th>"
         "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
     )
     disclaimer = (
         "<div class='prediction-disclaimer'>이 표는 과거 시그널·가격 패턴으로 학습한 실험적 "
-        "머신러닝 모델이 향후 30일간의 매수/HOLD/매도 비율을 추정한 것입니다 — 위의 매수/HOLD/매도 "
+        "머신러닝 모델이 향후 30일간의 <b>추세 점수</b>를 추정한 것입니다 — 위의 매수/HOLD/매도 "
         "판정(기계적 규칙 기반)과는 완전히 별개이며, 어떤 경우에도 그 판정을 대체하거나 바꾸지 "
-        "않습니다. \"신뢰도\"는 검증 구간에서 단순 평균 예측 대비 오차(MAE)가 얼마나 줄었는지를 "
-        "나타내며, 수치가 낮다고 예측이 틀렸다는 뜻은 아니지만 참고용 이상으로 받아들이지 마세요."
+        "않습니다.<br><br>"
+        "<b>추세 점수 = log((매수일수+1) / (매도일수+1))</b> — 양수면 신고점 갱신(매수)이 "
+        "트레일링 스탑 하회(매도)보다 많다는 뜻이고, 음수면 그 반대입니다.<br>"
+        "<b>왜 대부분 음수로 나오는가</b>: 매수는 그날 하루 20일/100일 최고가를 새로 갱신해야만 "
+        "발동하는 뾰족한 이벤트인 반면, 매도는 트레일링 스탑(최근 고점 − 3×ATR) 아래로 한 번 "
+        "내려가면 가격이 다시 회복할 때까지 여러 날 계속 유지되는 상태입니다 — 그래서 12개 자산군 "
+        "거의 전부 과거 전체 기간에서 매도로 분류된 날이 매수로 분류된 날보다 훨씬 많습니다. "
+        "이 점수가 음수라는 사실 자체는 이상 신호가 아니라 구조적으로 당연한 결과이며, 그 자산 "
+        "<b>자신의 과거 평균 점수</b>보다 지금 예측이 더 높은지/낮은지가 실제로 의미 있는 비교입니다.<br><br>"
+        "\"신뢰도\"는 검증 구간에서 단순 평균 예측 대비 오차(MAE)가 얼마나 줄었는지를 나타내며, "
+        "수치가 낮다고 예측이 틀렸다는 뜻은 아니지만 참고용 이상으로 받아들이지 마세요."
         "</div>"
     )
     return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{table}"
