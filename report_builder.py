@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 import html
+import json
 import os
 
 import chart_builder
@@ -74,6 +75,10 @@ STYLE = """
   .pnl-positive { color: #2e7d32; font-weight: bold; }
   .pnl-negative { color: #c62828; font-weight: bold; }
   .prediction-disclaimer { background: #fff8e1; border-left: 4px solid #f9a825; padding: 0.8rem 1rem; margin: 0.6rem 0; font-size: 0.85rem; color: #5d4a1a; }
+  .copy-summary-bar { display: flex; align-items: center; gap: 0.8rem; margin: 1.5rem 0; padding: 0.7rem 1rem; background: #eef3f7; border: 1px solid #cfd8e3; border-radius: 6px; }
+  .copy-summary-bar button { font: inherit; font-weight: bold; padding: 0.4rem 0.9rem; border: 1px solid #546e7a; border-radius: 6px; background: #fff; color: #37474f; cursor: pointer; }
+  .copy-summary-bar button:hover { background: #546e7a; color: #fff; }
+  .copy-summary-bar .copy-caption { font-size: 0.82rem; color: #607d8b; }
 """
 
 
@@ -368,6 +373,142 @@ def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]
     return f"<details><summary>📊 HOLD 종목 차트 보기 ({len(blocks)}개, 참고용)</summary>{''.join(blocks)}</details>"
 
 
+def _md_cell(text) -> str:
+    """Escape a value for a Markdown table cell -- pipes and newlines would otherwise
+    break the table's column boundaries."""
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def _build_report_markdown(
+    date: str,
+    overview: str,
+    results: dict,
+    signal_history: dict | None,
+    prediction_simulation: dict | None,
+    prediction_commentary: str,
+    paper_positions: list[dict] | None,
+) -> str:
+    """Markdown mirror of everything from the page title through the AI 예측 시뮬레이션 /
+    모의 투자 sections (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
+    built directly from the same Python data the HTML sections above are built from, not by
+    parsing the rendered HTML, so the two can never drift out of sync with each other and
+    the HTML layout is completely untouched by this feature (user request: the report's own
+    look must stay as-is). Copied to the clipboard by the button rendered right before that
+    heading, for pasting into another LLM for market analysis.
+    """
+    lines = [f"# 톰 바소 추세추종 일일 리포트 ({date})", ""]
+
+    if overview:
+        lines += ["## 오늘의 종합 총평", "", overview, ""]
+
+    lines += [
+        "## 자산군별 판정 요약",
+        "",
+        "| 티커 | 자산 | 카테고리 | 액션 | 종가 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for ticker, reco in results.items():
+        meta = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {})
+        lines.append(
+            f"| {ticker} | {_md_cell(meta.get('label', ''))} | {_md_cell(meta.get('category', ''))} "
+            f"| {reco['action']} | {reco['close']:.2f} |"
+        )
+    lines.append("")
+
+    if signal_history:
+        tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
+        lines += [
+            "## 최근 시그널 이력",
+            "",
+            "| 날짜 | " + " | ".join(tickers) + " |",
+            "| --- | " + " | ".join("---" for _ in tickers) + " |",
+        ]
+        for date_key in sorted(signal_history, reverse=True):
+            day_actions = signal_history[date_key]
+            cells = [ACTION_SHORT.get(day_actions.get(t), "-") for t in tickers]
+            lines.append(f"| {date_key} | " + " | ".join(cells) + " |")
+        lines.append("")
+
+    predictions = (prediction_simulation or {}).get("predictions") or {}
+    if predictions:
+        lines += [
+            "## AI 예측 시뮬레이션 (실험적)",
+            "",
+            "> 과거 시그널·가격 패턴으로 학습한 실험적 머신러닝 모델의 추세 점수 예측입니다. "
+            "위 매수/HOLD/매도 판정(기계적 규칙 기반)과는 별개이며 그 판정을 대체하지 않습니다. "
+            "추세 점수 = log((매수일수+1)/(매도일수+1)); 매도 신호가 매수보다 구조적으로 잦아 "
+            "대부분 음수로 나오는 것이 정상이며, 0이 아니라 그 자산 자신의 과거 평균과 비교해야 "
+            "의미가 있습니다.",
+            "",
+        ]
+        if prediction_commentary:
+            lines += [prediction_commentary, ""]
+        lines += [
+            "| 티커 | 자산 | 카테고리 | 기준일 | 추세 점수(예측) | 과거 평균 점수 | 신뢰도 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for ticker, meta in data_fetcher.ASSET_CLASS_TICKERS.items():
+            if ticker not in predictions:
+                continue
+            pred = predictions[ticker]
+            lines.append(
+                f"| {ticker} | {_md_cell(meta.get('label', ''))} | {_md_cell(meta.get('category', ''))} "
+                f"| {pred.get('as_of_date', '')} | {pred['trend_score']:+.3f} "
+                f"| {pred['historical_avg_score']:+.3f} | {pred['improvement_pct']:.1f}% |"
+            )
+        lines.append("")
+
+    if paper_positions:
+        lines += [
+            "## 모의 투자 현황",
+            "",
+            "| 티커 | 매수일 | 매수가 | 수량 | 설정일 | 현재가 | 미실현손익 |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for p in paper_positions:
+            recorded_date = p["created_at"][:10]
+            if p["current_price"] is None:
+                current_cell, pnl_cell = "N/A", "N/A"
+            else:
+                current_cell = f"{p['current_price']:.2f}"
+                pnl_cell = f"{p['unrealized_pnl']:+.2f} ({p['unrealized_pnl_pct']:+.2f}%)"
+            lines.append(
+                f"| {p['ticker']} | {p['entry_date']} | {p['entry_price']:.2f} | {p['quantity']} "
+                f"| {recorded_date} | {current_cell} | {pnl_cell} |"
+            )
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+def _build_copy_summary_bar_html(markdown_text: str) -> str:
+    """A small button that copies `markdown_text` to the clipboard via the Clipboard API.
+    The Markdown itself is embedded as a JSON string literal (json.dumps handles all
+    escaping) with any literal "</script" sequence additionally neutralized -- the HTML
+    parser looks for that byte sequence regardless of JS string context, and `overview`/
+    `prediction_commentary` are LLM-generated free text that could in principle contain it.
+    """
+    markdown_json = json.dumps(markdown_text).replace("</script", "<\\/script")
+    return f"""<div class="copy-summary-bar">
+<button id="copy-summary-btn" onclick="copyReportSummary()">📋 위 내용 Markdown으로 복사</button>
+<span class="copy-caption">제목부터 이 지점 위까지(요약 표·최근 시그널 이력·AI 예측·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
+</div>
+<script>
+const REPORT_MARKDOWN = {markdown_json};
+function copyReportSummary() {{
+  const btn = document.getElementById('copy-summary-btn');
+  const original = btn.textContent;
+  navigator.clipboard.writeText(REPORT_MARKDOWN).then(function() {{
+    btn.textContent = '✅ 복사됨!';
+    setTimeout(function() {{ btn.textContent = original; }}, 2000);
+  }}, function() {{
+    btn.textContent = '❌ 복사 실패 (브라우저 권한 확인)';
+    setTimeout(function() {{ btn.textContent = original; }}, 2000);
+  }});
+}}
+</script>"""
+
+
 def build_daily_report_html(
     drive_db,
     results: dict,
@@ -418,6 +559,11 @@ def build_daily_report_html(
     history_html = _build_signal_history_html(signal_history or {})
     prediction_html = _build_prediction_simulation_html(prediction_simulation, prediction_commentary)
 
+    report_markdown = _build_report_markdown(
+        date, overview, results, signal_history, prediction_simulation, prediction_commentary, paper_positions
+    )
+    copy_summary_html = _build_copy_summary_bar_html(report_markdown)
+
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
     hold_html = _build_hold_charts_html(drive_db, results, chart_js_loaded)
@@ -440,6 +586,7 @@ def build_daily_report_html(
 {history_html}
 {prediction_html}
 {paper_html}
+{copy_summary_html}
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
