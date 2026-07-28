@@ -29,6 +29,10 @@ RECOMMENDATION_SYSTEM_PROMPT = (
     "뉴스의 감정이나 예측으로 판단하지 말고, 주어진 시그널 상태와 뉴스가 그 추세를 뒷받침하는 팩트인지만 "
     "걸러내어 위 규칙에 따라 최종 추천을 내려라. 답변 첫 줄은 반드시 '추천: 매수', '추천: HOLD', '추천: 매도' "
     "중 하나로 시작하고, 이어서 그 근거를 설명하라. "
+    "근거를 설명할 때 뉴스는 주제 키워드만 나열하지 말고, 수집된 기사 중 가장 관련성 높은 1~2건을 "
+    "구체적으로 짚어 그 기사가 실제로 무슨 내용을 전하는지와 그것이 왜 지금의 추세(또는 청산 신호)를 "
+    "뒷받침하는 팩트인지 혹은 무시해도 되는 노이즈인지를 풀어서 설명하라 — 기사 제목이나 발행처만 "
+    "언급하고 넘어가지 마라. 뉴스가 없거나 기계적 판정과 무관하면 그 사실만 담백하게 언급하면 된다. "
     "시그널 상태에 일목균형표 구름 정보가 포함되어 있다면, 이는 어디까지나 보조 참고 정보다 — 이것만으로 "
     "위 추천(첫 줄)을 절대 바꾸지 마라. 다만 그 정보가 기계적 판정과 엇갈린다면(예: 매수인데 구름 아래/음운), "
     "비중을 줄여 진입하는 등 리스크 관리 코멘트를 근거 설명에 덧붙일 수 있다."
@@ -159,11 +163,13 @@ PREDICTION_COMMENTARY_SYSTEM_PROMPT = (
     "아래는 실험적 머신러닝 모델이 대표 자산군별로 추정한 '추세 점수'다 — "
     "log((향후 30일 예상 매수일수+1) / (향후 30일 예상 매도일수+1))로 계산되며, 이 모델은 "
     "과거 시그널 패턴만으로 학습됐고 검증이 제한적이다(단순 평균 예측 대비 소폭 개선 수준). "
-    "각 자산의 예측값은 그 자산 자신의 과거 평균 점수와 함께 주어진다 — 점수가 음수인 것 "
-    "자체는 매수(신고점 갱신, 하루짜리 이벤트)보다 매도(트레일링 스탑 하회, 여러 날 지속되는 "
-    "상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. (1) 이번 예측이 그 자산의 "
-    "과거 평균보다 높은지 낮은지, (2) 여러 자산군에 걸쳐 공통으로 나타나는 패턴을 감정 없이 "
-    "담담한 사실 위주로 짚어라. 추가로 (3) 주식/암호화폐 같은 경기민감 자산군과 채권/통화 같은 "
+    "각 자산의 예측값은 그 자산 자신의 과거 평균 점수와 함께 주어지고, 그 뒤에 '평균보다 높음'/"
+    "'평균보다 낮음'이라는 판정도 이미 계산되어 붙어 있다 — 이 판정은 네가 다시 계산하지 말고 "
+    "그대로 신뢰하고 인용하라(두 숫자, 특히 부호가 다르거나 둘 다 음수인 경우 직접 비교하면 착오가 "
+    "생기기 쉽다). 점수가 음수인 것 자체는 매수(신고점 갱신, 하루짜리 이벤트)보다 매도(트레일링 "
+    "스탑 하회, 여러 날 지속되는 상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. "
+    "(1) 주어진 '평균보다 높음/낮음' 판정을 자산별로 그대로 인용하고, (2) 여러 자산군에 걸쳐 "
+    "공통으로 나타나는 패턴을 감정 없이 담담한 사실 위주로 짚어라. 추가로 (3) 주식/암호화폐 같은 경기민감 자산군과 채권/통화 같은 "
     "안전자산군 사이에서 이 패턴이 상대적으로 어떻게 갈리는지를 근거로, 이것이 통상적인 경기 "
     "사이클(확장기/후기 확장기/수축기/회복기 등) 중 어떤 국면과 유사한 특징을 보이는지 참고 삼아 "
     "짧게 고찰해도 좋다 — 다만 이는 어디까지나 지금 나타난 자산군 간 상대적 패턴에 대한 참고적 "
@@ -184,10 +190,20 @@ def generate_prediction_commentary(predictions: dict) -> str:
     advisory-only principle as generate_portfolio_overview/generate_recommendation. May
     also reflect on which economic-cycle phase the cross-asset pattern resembles (user
     request) -- scoped to a qualitative read of today's relative pattern, not a forecast.
+
+    The "above/below average" comparison per ticker is computed here in Python and handed
+    to the model pre-labeled, rather than asking it to compare two floats itself across all
+    12 tickers in one pass — a real run produced a factual error (claimed QQQ/SPY were
+    above their own historical average when both were actually below it) that a stricter
+    wording alone wasn't reliable enough to prevent; removing the arithmetic from the
+    model's job entirely is the actual fix.
     """
-    lines = ["[자산군별 추세 점수 (실험적 ML 예측)]"]
+    lines = ["[자산군별 추세 점수 (실험적 ML 예측, 평균 비교는 이미 계산되어 있음)]"]
     for ticker, pred in predictions.items():
-        lines.append(f"- {ticker}: 예측 {pred['trend_score']:+.3f} (과거 평균 {pred['historical_avg_score']:+.3f})")
+        comparison = "평균보다 높음" if pred["trend_score"] >= pred["historical_avg_score"] else "평균보다 낮음"
+        lines.append(
+            f"- {ticker}: 예측 {pred['trend_score']:+.3f} / 과거 평균 {pred['historical_avg_score']:+.3f} → {comparison}"
+        )
     prompt = (
         "\n".join(lines)
         + "\n\n위 자산군별 추세 점수를 각 자산의 과거 평균과 비교해 요약하고, "
