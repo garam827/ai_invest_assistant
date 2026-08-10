@@ -729,17 +729,20 @@ def build_daily_report_html(
 
 
 def save_report(drive_db, date: str, report_html: str) -> None:
-    """Persist the report to Drive (for the Streamlit history tab). Also writes a local
-    docs/reports/{date}.html file for recommend.yml to commit+push to GitHub Pages — but
-    only for a real (non-test) `date`. A "_test"-suffixed date (config.IS_TEST_REPORT) is
-    Drive-only, so a manual/sample publish never commits anything to the public repo or
-    GitHub Pages — Drive plus the Streamlit "리포트 히스토리" tab's download button is
-    enough to inspect a test run's output.
+    """Persist the report to Drive (for the Streamlit history tab) and write a local
+    docs/reports/{date}.html file for recommend.yml to commit+push to GitHub Pages.
+
+    Test publishes (config.IS_TEST_REPORT, `date` already ends with "_test" by the time
+    it reaches here) are now also written to docs/reports/ and published (v3.52, reversing
+    v3.27's Drive-only restriction, per explicit user request) — the "_test" suffix carries
+    through to the local filename and public URL too (e.g. docs/reports/2026-08-10_test.html),
+    so a test publish still can never collide with or overwrite that day's real report; it's
+    simply also reachable as its own distinct public page instead of only via Drive/the
+    Streamlit download button. `list_report_dates` still excludes "_test" dates from the
+    Streamlit history table's main grid (see that function) — this only changes whether the
+    file reaches GitHub Pages, not whether it's listed there.
     """
     drive_db.save_text(f"{REPORT_FILENAME_PREFIX}{date}.html", report_html)
-
-    if date.endswith("_test"):
-        return
 
     os.makedirs(LOCAL_REPORT_DIR, exist_ok=True)
     with open(os.path.join(LOCAL_REPORT_DIR, f"{date}.html"), "w", encoding="utf-8") as f:

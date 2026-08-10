@@ -490,8 +490,10 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
                 backtest_summary=backtest_summary,
             )
             report_builder.save_report(drive_db, report_date, report_html)
-            # A test publish is never committed to docs/reports (see report_builder.save_report),
-            # so it never actually reaches GitHub Pages — don't hand out a URL that 404s.
+            # A test publish now does reach docs/reports/GitHub Pages too (v3.52, under its
+            # own "_test"-suffixed URL — see report_builder.save_report), but Telegram still
+            # only gets a link for a real publish — a test run's whole point is to check the
+            # pipeline without also sending a live-looking notification.
             if not config.IS_TEST_REPORT:
                 report_url = f"{config.REPORT_BASE_URL}/{report_date}.html"
             logger.info("Saved daily report for %s", report_date)
