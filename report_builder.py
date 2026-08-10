@@ -242,6 +242,106 @@ def _build_prediction_simulation_html(prediction_simulation: dict | None, commen
     return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{commentary_html}{table}"
 
 
+def _build_sp500_signals_html(sp500_signals: list[dict] | None) -> str:
+    """sp500_signals: recommendation_engine.get_sp500_signal_summary's output -- mechanical-
+    only 매수/매도 calls (signal_engine.get_mechanical_action) across every active S&P 500
+    ticker, deliberately WITHOUT news/LLM narrative (that stays scoped to the 12
+    ASSET_CLASS_TICKERS to keep Exa/OpenRouter usage bounded, per CLAUDE.md). Only 매수/매도
+    tickers are included (HOLD is most days for most tickers and isn't listed individually).
+    Omitted entirely if empty, same "no section for nothing to show" principle used
+    throughout this file.
+    """
+    if not sp500_signals:
+        return ""
+
+    rows = []
+    for item in sorted(sp500_signals, key=lambda x: (x["action"], x["ticker"])):
+        color = ACTION_COLOR.get(item["action"], "#757575")
+        rows.append(
+            "<tr>"
+            f"<td>{_esc(item['ticker'])}</td>"
+            f"<td>{_esc(item.get('description', ''))}</td>"
+            f"<td>{_esc(item.get('sector', ''))}</td>"
+            f"<td style='color:{color};font-weight:bold'>{item['action']}</td>"
+            f"<td>{item['close']:.2f}</td>"
+            "</tr>"
+        )
+    table = (
+        "<table class='dense'><thead><tr>"
+        "<th>티커</th><th>종목명</th><th>섹터</th><th>액션</th><th>종가</th>"
+        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+    note = (
+        "<p style='color:#888;font-size:0.85rem'>기계적 규칙 기반 판정만 표시됩니다 — "
+        "뉴스·LLM 분석은 위 대표 자산군 12종에만 적용됩니다.</p>"
+    )
+    return f"<h2>S&amp;P 500 매수/매도 시그널 ({len(sp500_signals)}종목)</h2>{note}{table}"
+
+
+def _build_backtest_summary_html(backtest_summary: dict | None) -> str:
+    """backtest_summary: backtest.py's `python backtest.py full-universe` output
+    (Drive's _backtest_summary.json -- see backtest.build_backtest_summary), loaded
+    read-only by the caller. Per-ticker trade-simulation stats (n_trades/win rate/avg
+    return/Kelly fraction) for both the full analysis window and a recent N-year window
+    side by side, across every ASSET_CLASS_TICKERS + active S&P 500 ticker -- lets a reader
+    see at a glance whether the mechanical rule's historical edge for a given ticker still
+    holds in the recent window. Experimental/backward-looking, same advisory-only framing
+    as the AI prediction section -- never a substitute for the mechanical action shown
+    elsewhere in the report. Omitted entirely if not given/empty. Deliberately placed at the
+    very end of the page (outside the copy-to-clipboard scope, see
+    _build_copy_summary_bar_html) since it's reference/appendix material, not part of
+    "today's" market snapshot.
+    """
+    if not backtest_summary or not backtest_summary.get("rows"):
+        return ""
+
+    recent_years = backtest_summary.get("recent_years", 3)
+    generated_at = _esc(str(backtest_summary.get("generated_at", ""))[:10])
+
+    def _fmt_pct(value) -> str:
+        return f"{value:.1f}%" if value is not None else "—"
+
+    def _fmt_signed_pct(value) -> str:
+        return f"{value:+.1f}%" if value is not None else "—"
+
+    rows_html = []
+    for row in backtest_summary["rows"]:
+        rows_html.append(
+            "<tr>"
+            f"<td>{_esc(row['ticker'])}</td>"
+            f"<td>{_esc(row.get('category', ''))}</td>"
+            f"<td>{row.get('n_trades_all', 0)}</td>"
+            f"<td>{_fmt_pct(row.get('win_rate_all_pct'))}</td>"
+            f"<td>{_fmt_signed_pct(row.get('avg_return_all_pct'))}</td>"
+            f"<td>{_fmt_signed_pct(row.get('kelly_all_pct'))}</td>"
+            f"<td>{row.get(f'n_trades_{recent_years}y', 0)}</td>"
+            f"<td>{_fmt_pct(row.get(f'win_rate_{recent_years}y_pct'))}</td>"
+            f"<td>{_fmt_signed_pct(row.get(f'avg_return_{recent_years}y_pct'))}</td>"
+            f"<td>{_fmt_signed_pct(row.get(f'kelly_{recent_years}y_pct'))}</td>"
+            "</tr>"
+        )
+
+    table = (
+        "<table class='dense'><thead><tr>"
+        "<th rowspan='2'>티커</th><th rowspan='2'>구분</th>"
+        f"<th colspan='4'>전체 기간</th><th colspan='4'>최근 {recent_years}년</th>"
+        "</tr><tr>"
+        "<th>거래수</th><th>승률</th><th>평균수익률</th><th>켈리</th>"
+        "<th>거래수</th><th>승률</th><th>평균수익률</th><th>켈리</th>"
+        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
+    )
+    disclaimer = (
+        "<div class='prediction-disclaimer'>이 표는 각 종목에 톰 바소 추세추종 규칙(20일/100일 "
+        "돌파 매수, 트레일링 스탑 청산)을 과거에 그대로 적용했다면 어땠을지를 계산한 것입니다 — "
+        "돌파 시점 진입, 다음 청산 신호에 매도하는 거래 단위로 승률·평균 수익률·켈리 공식 기반 "
+        "리스크 비율을 냈습니다. <b>과거 성과이며 미래 성과를 보장하지 않고</b>, 위 매수/HOLD/매도 "
+        "판정을 대체하지 않습니다. \"거래수\"가 적은 종목(특히 최근 기간)은 통계적 신뢰도가 낮으니 "
+        "참고용으로만 활용하세요."
+        "</div>"
+    )
+    return f"<h2>전체 종목 백테스트 요약 (기준일: {generated_at})</h2>{disclaimer}{table}"
+
+
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
 
 
@@ -387,6 +487,7 @@ def _build_report_markdown(
     prediction_simulation: dict | None,
     prediction_commentary: str,
     paper_positions: list[dict] | None,
+    sp500_signals: list[dict] | None = None,
 ) -> str:
     """Markdown mirror of everything from the page title through the AI 예측 시뮬레이션 /
     모의 투자 sections (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
@@ -414,6 +515,22 @@ def _build_report_markdown(
             f"| {reco['action']} | {reco['close']:.2f} |"
         )
     lines.append("")
+
+    if sp500_signals:
+        lines += [
+            f"## S&P 500 매수/매도 시그널 ({len(sp500_signals)}종목)",
+            "",
+            "(기계적 규칙 기반 판정만 — 뉴스·LLM 분석은 위 대표 자산군에만 적용됨)",
+            "",
+            "| 티커 | 종목명 | 섹터 | 액션 | 종가 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for item in sorted(sp500_signals, key=lambda x: (x["action"], x["ticker"])):
+            lines.append(
+                f"| {item['ticker']} | {_md_cell(item.get('description', ''))} "
+                f"| {_md_cell(item.get('sector', ''))} | {item['action']} | {item['close']:.2f} |"
+            )
+        lines.append("")
 
     if signal_history:
         tickers = list(data_fetcher.ASSET_CLASS_TICKERS)
@@ -515,8 +632,20 @@ def build_daily_report_html(
     paper_positions: list[dict] | None = None,
     signal_history: dict | None = None,
     prediction_simulation: dict | None = None,
+    sp500_signals: list[dict] | None = None,
+    backtest_summary: dict | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
+
+    `sp500_signals` (recommendation_engine.get_sp500_signal_summary's output, computed
+    fresh every run) is likewise optional, omitted if empty (see _build_sp500_signals_html)
+    — mechanical-only 매수/매도 calls across the S&P 500, deliberately without news/LLM
+    narrative (kept to the 12 ASSET_CLASS_TICKERS to bound Exa/OpenRouter usage).
+
+    `backtest_summary` (backtest.py's `python backtest.py full-universe` output, loaded
+    read-only from Drive's _backtest_summary.json by the caller) is likewise optional,
+    omitted if not given/empty (see _build_backtest_summary_html) — per-ticker historical
+    trade-simulation stats, computed entirely outside this cron path.
 
     `paper_positions` (paper_trading.compute_position_returns' output, open positions only)
     is optional so existing callers/tests are unaffected — omitted entirely from the report
@@ -555,12 +684,15 @@ def build_daily_report_html(
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     table_html = _build_summary_table_html(results)
+    sp500_signals_html = _build_sp500_signals_html(sp500_signals)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
     prediction_html = _build_prediction_simulation_html(prediction_simulation, prediction_commentary)
+    backtest_summary_html = _build_backtest_summary_html(backtest_summary)
 
     report_markdown = _build_report_markdown(
-        date, overview, results, signal_history, prediction_simulation, prediction_commentary, paper_positions
+        date, overview, results, signal_history, prediction_simulation, prediction_commentary,
+        paper_positions, sp500_signals,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
@@ -583,6 +715,7 @@ def build_daily_report_html(
 </div>
 {overview_html}
 {table_html}
+{sp500_signals_html}
 {history_html}
 {prediction_html}
 {paper_html}
@@ -590,6 +723,7 @@ def build_daily_report_html(
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
+{backtest_summary_html}
 </body>
 </html>"""
 

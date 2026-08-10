@@ -47,6 +47,11 @@ SIGNAL_HISTORY_FILENAME = "_signal_history.json"
 # PREDICTION_SIMULATION_FILENAME constant. Read-only here; this cron path never writes it.
 PREDICTION_SIMULATION_FILENAME = "_prediction_simulation.json"
 
+# Written by backtest.py's `python backtest.py full-universe` (manual/local, see
+# investment_assistant_spec.md [기능 7]) -- filename must stay in sync with that script's own
+# BACKTEST_SUMMARY_FILENAME constant. Read-only here; this cron path never runs a backtest.
+BACKTEST_SUMMARY_FILENAME = "_backtest_summary.json"
+
 
 def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
@@ -331,6 +336,49 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
     }
 
 
+def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
+    """Mechanical-only 매수/매도 pass over every active S&P 500 ticker (user request) — NOT
+    news/LLM-enriched like get_recommendation_for_ticker's ASSET_CLASS_TICKERS flow, which
+    stays 12-ticker-only specifically to keep Exa/OpenRouter usage bounded (see CLAUDE.md).
+    This only calls signal_engine.get_mechanical_action on each ticker's already-collected
+    Drive OHLCV (collect.yml refreshes the whole active universe daily) — no new external
+    API calls, so running it across 500+ tickers costs nothing but Drive reads.
+
+    Only 매수/매도 tickers are returned (HOLD is the overwhelming majority most days and
+    isn't worth listing individually — same "no card for nothing to report" principle as
+    the HOLD-charts block). A single ticker's failure (missing/stale data) is skipped
+    rather than aborting the whole pass.
+    """
+    universe = drive_db.load_json("_universe.json") or {}
+    tickers = universe.get("active_tickers", [])
+    sectors = universe.get("sectors", {})
+    descriptions = universe.get("descriptions", {})
+
+    results = []
+    for ticker in tickers:
+        try:
+            raw_df = drive_db.load_ticker(ticker)
+            if raw_df is None or raw_df.empty or not _is_data_fresh(raw_df):
+                continue
+            summary = signal_engine.get_latest_signal_summary(raw_df)
+            action = signal_engine.get_mechanical_action(summary)
+            if action == "HOLD":
+                continue
+            results.append(
+                {
+                    "ticker": ticker,
+                    "sector": sectors.get(ticker, ""),
+                    "description": descriptions.get(ticker, ticker),
+                    "action": action,
+                    "close": summary["close"],
+                }
+            )
+        except Exception:
+            logger.exception("%s: S&P 500 signal pass failed, skipping", ticker)
+
+    return results
+
+
 def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = None) -> dict:
     """Run get_recommendation_for_ticker for each representative asset-class ticker
     (data_fetcher.ASSET_CLASS_TICKERS by default — NOT the full S&P 500 universe), and
@@ -411,6 +459,24 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         logger.exception("Failed to load prediction simulation (report will omit this section)")
         prediction_simulation = None
 
+    # S&P 500 mechanical-only signals (user request) — computed fresh every run (cheap, no
+    # LLM/news, see get_sp500_signal_summary's docstring), unlike prediction_simulation/
+    # backtest_summary below which are manual/local artifacts this cron only ever reads.
+    try:
+        sp500_signals = get_sp500_signal_summary(drive_db)
+    except Exception:
+        logger.exception("Failed to compute S&P 500 signal summary (report will omit this section)")
+        sp500_signals = []
+
+    # Full-universe backtest summary (backtest.py's `python backtest.py full-universe`,
+    # manual/local — see investment_assistant_spec.md [기능 7]) — read-only, same pattern as
+    # prediction_simulation above. Missing/failed load just omits that report section.
+    try:
+        backtest_summary = drive_db.load_json(BACKTEST_SUMMARY_FILENAME)
+    except Exception:
+        logger.exception("Failed to load backtest summary (report will omit this section)")
+        backtest_summary = None
+
     report_url = None
     if results:
         try:
@@ -420,6 +486,8 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
                 paper_positions=open_positions,
                 signal_history=recent_history,
                 prediction_simulation=prediction_simulation,
+                sp500_signals=sp500_signals,
+                backtest_summary=backtest_summary,
             )
             report_builder.save_report(drive_db, report_date, report_html)
             # A test publish is never committed to docs/reports (see report_builder.save_report),
