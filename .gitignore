@@ -17,3 +17,7 @@ prediction_model/ohlcv_cache/
 prediction_model/*.csv
 prediction_model/*.npz
 prediction_model/models/
+
+# triple_barrier_backtest_spec.md's local-only cache (yfinance history + CSV summary) —
+# regenerable, not versioned, never uploaded to Drive.
+backtest_cache/
