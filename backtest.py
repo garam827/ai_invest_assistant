@@ -12,6 +12,7 @@ import os
 
 import pandas as pd
 
+import config
 import data_fetcher
 import signal_engine
 
@@ -201,6 +202,7 @@ def simulate_trades(tickers: dict | None = None) -> pd.DataFrame:
                         "ticker": ticker,
                         "entry_date": entry.Date,
                         "entry_price": entry.Close,
+                        "entry_atr": entry.ATR,  # ATR *at entry* -- what an ATR-sized position would size off of
                         "exit_date": row.Date,
                         "exit_price": row.Close,
                         "return_pct": (row.Close / entry.Close - 1) * 100,
@@ -239,6 +241,106 @@ def summarize_trades(trades: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def calculate_kelly_fraction(trades: pd.DataFrame) -> dict:
+    """Kelly criterion optimal risk fraction from this system's own empirical trade stats:
+    f* = W - (1-W)/R, where W = win rate and R = avg win % / avg loss % (payoff ratio).
+    f* is the fraction of capital Kelly says to risk per trade to maximize long-run
+    geometric growth. Full Kelly is high-variance in practice (brutal drawdowns), so
+    half-Kelly (f*/2) -- the commonly used, gentler figure -- is returned alongside it,
+    not as a replacement.
+
+    Returns None values if there aren't both winning and losing trades to compute from.
+    """
+    if trades.empty:
+        return {k: None for k in ("win_rate_pct", "avg_win_pct", "avg_loss_pct", "payoff_ratio", "kelly_fraction_pct", "half_kelly_fraction_pct")}
+
+    wins = trades.loc[trades["return_pct"] > 0, "return_pct"]
+    losses = trades.loc[trades["return_pct"] <= 0, "return_pct"]
+    if wins.empty or losses.empty:
+        return {k: None for k in ("win_rate_pct", "avg_win_pct", "avg_loss_pct", "payoff_ratio", "kelly_fraction_pct", "half_kelly_fraction_pct")}
+
+    win_rate = len(wins) / len(trades)
+    avg_win = wins.mean()
+    avg_loss = abs(losses.mean())
+    payoff_ratio = avg_win / avg_loss
+    kelly = win_rate - (1 - win_rate) / payoff_ratio
+
+    return {
+        "win_rate_pct": round(win_rate * 100, 1),
+        "avg_win_pct": round(avg_win, 2),
+        "avg_loss_pct": round(avg_loss, 2),
+        "payoff_ratio": round(payoff_ratio, 2),
+        "kelly_fraction_pct": round(kelly * 100, 2),
+        "half_kelly_fraction_pct": round(kelly * 50, 2),
+    }
+
+
+def simulate_equity_curve(
+    tickers: dict | None = None,
+    starting_equity: float = 10000.0,
+    risk_pct: float = config.DEFAULT_RISK_PCT,
+) -> tuple[pd.DataFrame, dict]:
+    """Extends simulate_trades with signal_engine.calculate_position_size -- the same
+    ATR-based sizing (shares such that a 3xATR stop-out risks at most `risk_pct` of
+    equity) production actually uses -- to track real account equity trade-by-trade,
+    instead of just each trade's price return_pct in isolation.
+
+    `risk_pct` can be config.DEFAULT_RISK_PCT (production's default, 1%) or a value from
+    calculate_kelly_fraction (full or half) to see how Kelly-derived sizing would have
+    compounded instead. Note this is a practical bridge, not an exact Kelly simulation --
+    Kelly's f* assumes each bet risks/wins exactly the empirical avg_loss/avg_win, while
+    ATR sizing bounds *worst-case* risk per trade (a 3xATR stop) and the realized P&L
+    still varies trade to trade -- this is the same heuristic combination of volatility-
+    based sizing with a Kelly-derived risk fraction used in standard position-sizing
+    practice (e.g. Van Tharp), not a claim that ATR sizing reproduces Kelly's assumptions
+    exactly.
+
+    Trades across all tickers are processed in chronological order against one shared
+    equity pool. This does NOT model overlapping positions splitting capital -- each
+    trade sizes off whatever the *current* equity is, as if it were the only open
+    position. Fine for a single-ticker run (no overlap possible); a known simplification
+    if scaled to multiple tickers with real overlapping holding periods.
+
+    Returns (per-trade DataFrame with shares/pnl/equity_after columns appended, summary
+    dict with ending_equity/total_return_pct/max_drawdown_pct).
+    """
+    trades = simulate_trades(tickers)
+    if trades.empty:
+        return trades, {"ending_equity": starting_equity, "total_return_pct": 0.0, "max_drawdown_pct": 0.0}
+
+    trades = trades.sort_values("entry_date").reset_index(drop=True)
+
+    equity = starting_equity
+    peak = starting_equity
+    max_drawdown_pct = 0.0
+    shares_list, pnl_list, equity_after_list = [], [], []
+
+    for row in trades.itertuples():
+        shares = signal_engine.calculate_position_size(equity, row.entry_atr, risk_pct)
+        pnl = shares * (row.exit_price - row.entry_price)
+        equity += pnl
+        peak = max(peak, equity)
+        drawdown_pct = (peak - equity) / peak * 100 if peak > 0 else 0.0
+        max_drawdown_pct = max(max_drawdown_pct, drawdown_pct)
+
+        shares_list.append(shares)
+        pnl_list.append(round(pnl, 2))
+        equity_after_list.append(round(equity, 2))
+
+    trades = trades.copy()
+    trades["shares"] = shares_list
+    trades["pnl"] = pnl_list
+    trades["equity_after"] = equity_after_list
+
+    summary = {
+        "starting_equity": starting_equity,
+        "ending_equity": round(equity, 2),
+        "total_return_pct": round((equity / starting_equity - 1) * 100, 2),
+        "max_drawdown_pct": round(max_drawdown_pct, 2),
+    }
+    return trades, summary
+
+
 if __name__ == "__main__":
     os.makedirs(BACKTEST_CACHE_DIR, exist_ok=True)
 
@@ -258,3 +360,20 @@ if __name__ == "__main__":
     print()
     print(trade_summary.to_string(index=False))
     print(f"\nsaved to: {trades_path}, {trade_summary_path}")
+
+    kelly = calculate_kelly_fraction(trades)
+    print()
+    print("Kelly:", kelly)
+
+    default_trades, default_curve_summary = simulate_equity_curve(risk_pct=config.DEFAULT_RISK_PCT)
+    print(f"\nEquity curve @ risk_pct={config.DEFAULT_RISK_PCT:.1%} (production default):", default_curve_summary)
+
+    if kelly["half_kelly_fraction_pct"] is not None and kelly["half_kelly_fraction_pct"] > 0:
+        half_kelly_risk_pct = kelly["half_kelly_fraction_pct"] / 100
+        kelly_trades, kelly_curve_summary = simulate_equity_curve(risk_pct=half_kelly_risk_pct)
+        print(f"Equity curve @ risk_pct={half_kelly_risk_pct:.1%} (half-Kelly):", kelly_curve_summary)
+        equity_path = os.path.join(BACKTEST_CACHE_DIR, "equity_curve_half_kelly.csv")
+        kelly_trades.to_csv(equity_path, index=False, encoding="utf-8-sig")
+        print(f"saved to: {equity_path}")
+    else:
+        default_trades.to_csv(os.path.join(BACKTEST_CACHE_DIR, "equity_curve_default.csv"), index=False, encoding="utf-8-sig")
