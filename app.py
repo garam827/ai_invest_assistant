@@ -199,16 +199,19 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
 
     st.subheader("Mr. Serenity의 매매 추천")
     try:
-        if not config.STREAMLIT_ENABLE_LLM:
-            # Public-deployment mode: news/analysis costs API quota per click, so require an
-            # explicit trigger instead of auto-firing on every "조회" — keyed by ticker so
-            # switching tickers naturally resets it without any manual state cleanup.
-            trigger_key = f"{key_prefix}_news_triggered_{ticker}"
-            if not st.session_state.get(trigger_key):
-                st.info("API 사용량 관리를 위해 뉴스 수집·분석은 버튼을 눌러야 실행됩니다. (LLM 서술 분석은 이 배포본에서 비활성화되어 있으며, 규칙 기반 설명으로 대체됩니다.)")
-                if not st.button("뉴스/분석 불러오기", key=f"{key_prefix}_load_btn_{ticker}"):
-                    return
-                st.session_state[trigger_key] = True
+        # 차트(추세) 렌더링과 뉴스/LLM 분석 호출을 항상 분리 — "조회"는 차트만 그리고,
+        # 이 버튼을 눌러야만 Exa/OpenRouter를 호출한다(배포 모드와 무관하게 동일하게 적용,
+        # 이전에는 config.STREAMLIT_ENABLE_LLM=false일 때만 분리되어 있었음). 티커별
+        # st.session_state 키로 게이팅해 종목을 바꾸면 자동으로 다시 잠긴다.
+        trigger_key = f"{key_prefix}_news_triggered_{ticker}"
+        if not st.session_state.get(trigger_key):
+            note = "뉴스 수집·분석은 외부 API를 호출하므로 버튼을 눌러야 실행됩니다."
+            if not config.STREAMLIT_ENABLE_LLM:
+                note += " (LLM 서술 분석은 이 배포본에서 비활성화되어 있으며, 규칙 기반 설명으로 대체됩니다.)"
+            st.info(note)
+            if not st.button("뉴스/분석 불러오기", key=f"{key_prefix}_load_btn_{ticker}"):
+                return
+            st.session_state[trigger_key] = True
 
         reco = get_recommendation(ticker, str(latest["Date"]), config.STREAMLIT_ENABLE_LLM)
         if reco is None:
