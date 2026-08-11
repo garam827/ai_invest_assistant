@@ -1,0 +1,23 @@
+:root {
+  font: 16px/1.5 system-ui, 'Segoe UI', 'Malgun Gothic', Roboto, sans-serif;
+  color-scheme: light;
+  color: #222;
+  background: #fff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-weight: 600;
+}
+
+table {
+  font-size: 0.9rem;
+}

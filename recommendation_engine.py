@@ -29,6 +29,7 @@ import openrouter_briefing
 import paper_trading
 import report_builder
 import signal_engine
+import static_export
 import telegram_notifier
 from drive_db import DriveDB
 
@@ -502,6 +503,18 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
             # Telegram summary — same "never drop what already succeeded" principle as the
             # per-ticker LLM/news fallback above.
             logger.exception("Failed to build/save the daily report (results still returned)")
+
+    # Static JSON export for the read-only React site (web/, published to docs/data/ via
+    # GitHub Pages) -- overwritten every run, independent of the HTML report above. A
+    # failure here must never take down the report/Telegram summary that already succeeded,
+    # same principle as every other optional step in this function. No-ops entirely on a
+    # manual/sample (config.IS_TEST_REPORT) run, same as report_url above.
+    try:
+        static_export.export_signals_json(results, sp500_signals, signal_history=recent_history)
+        static_export.export_universe_json(drive_db)
+        static_export.export_chart_data(drive_db)
+    except Exception:
+        logger.exception("Failed to export static JSON for the React site (report/Telegram unaffected)")
 
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
         try:

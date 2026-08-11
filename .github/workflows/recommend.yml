@@ -49,11 +49,12 @@ jobs:
       - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
         run: python recommendation_engine.py
 
-      # report_builder.py writes the day's combined report to docs/reports/{date}.html as a
-      # side effect of the step above; commit+push it so GitHub Pages (serving the docs/
-      # folder) publishes it at the URL telegram_notifier's message links to. A no-op (no
-      # commit) if there were no results (e.g. every ticker was skipped for stale data).
-      - name: Publish daily report to GitHub Pages
+      # report_builder.py writes the day's combined report to docs/reports/{date}.html, and
+      # static_export.py writes the React site's data (docs/data/*.json, overwritten daily,
+      # not date-stamped) as side effects of the step above; commit+push both so GitHub Pages
+      # (serving the docs/ folder) publishes them. A no-op (no commit) if there were no
+      # results (e.g. every ticker was skipped for stale data).
+      - name: Publish daily report + static site data to GitHub Pages
         run: |
           if [ ! -d docs/reports ]; then
             echo "No report generated (empty results), nothing to publish."
@@ -62,6 +63,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/reports
+          if [ -d docs/data ]; then
+            git add docs/data
+          fi
           if [ "${IS_TEST_REPORT}" = "true" ]; then
             git diff --cached --quiet || git commit -m "Add test report $(date -u +%Y-%m-%d)"
           else
