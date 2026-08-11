@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { SignalsView } from './views/SignalsView'
 import { ChartView } from './views/ChartView'
+import { ReportsView } from './views/ReportsView'
 
-type Tab = 'signals' | 'chart'
+type Tab = 'signals' | 'chart' | 'reports'
 
 function App() {
   const [tab, setTab] = useState<Tab>('signals')
@@ -18,6 +19,7 @@ function App() {
           [
             ['signals', '오늘의 시그널'],
             ['chart', '차트 분석'],
+            ['reports', '리포트 히스토리'],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -37,7 +39,9 @@ function App() {
           </button>
         ))}
       </nav>
-      {tab === 'signals' ? <SignalsView /> : <ChartView />}
+      {tab === 'signals' && <SignalsView />}
+      {tab === 'chart' && <ChartView />}
+      {tab === 'reports' && <ReportsView />}
     </div>
   )
 }

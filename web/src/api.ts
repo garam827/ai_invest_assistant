@@ -1,4 +1,4 @@
-import type { ChartRow, SignalsAssetClass, SignalsSp500, Universe } from './types'
+import type { ChartRow, ReportsIndex, SignalsAssetClass, SignalsSp500, Universe } from './types'
 
 // import.meta.env.BASE_URL is Vite's own copy of vite.config.ts's `base` ('/ai_invest_assistant/'
 // in production, '/' in dev) -- using it instead of a hardcoded path keeps `npm run dev` working
@@ -17,3 +17,4 @@ export const fetchSignalsAssetClass = () => fetchJson<SignalsAssetClass>('signal
 export const fetchSignalsSp500 = () => fetchJson<SignalsSp500>('signals_sp500.json')
 export const fetchUniverse = () => fetchJson<Universe>('universe.json')
 export const fetchChart = (ticker: string) => fetchJson<ChartRow[]>(`charts/${encodeURIComponent(ticker)}.json`)
+export const fetchReportsIndex = () => fetchJson<ReportsIndex>('reports.json')

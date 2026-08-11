@@ -513,6 +513,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         static_export.export_signals_json(results, sp500_signals, signal_history=recent_history)
         static_export.export_universe_json(drive_db)
         static_export.export_chart_data(drive_db)
+        static_export.export_reports_index()
     except Exception:
         logger.exception("Failed to export static JSON for the React site (report/Telegram unaffected)")
 

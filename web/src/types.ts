@@ -60,6 +60,11 @@ export interface Universe {
   sp500: Sp500Meta[]
 }
 
+export interface ReportsIndex {
+  generated_at: string
+  dates: string[]
+}
+
 // One row of docs/data/charts/{ticker}.json. Numeric indicator columns are `number | null` --
 // null covers a recently-listed ticker's Donchian-100/ATR/Ichimoku warm-up period (see
 // static_export._chart_rows_for_ticker).

@@ -21,6 +21,7 @@ import chart_builder
 import config
 import data_fetcher
 import openrouter_briefing
+import report_builder
 import signal_engine
 from drive_db import DriveDB
 
@@ -120,6 +121,38 @@ def export_universe_json(drive_db: DriveDB) -> None:
     }
     _write_json(os.path.join(DOCS_DATA_DIR, "universe.json"), payload)
     logger.info("Exported universe.json (%d S&P 500 tickers)", len(payload["sp500"]))
+
+
+def export_reports_index() -> None:
+    """docs/data/reports.json -- past daily report dates (newest first) with a saved
+    docs/reports/{date}.html, for the React site's "리포트 히스토리" tab to link out to (the
+    full LLM-narrative report itself isn't reproduced in React, just a link to the existing
+    static HTML page). Reads the local docs/reports/ directory directly rather than Drive,
+    since recommend.yml's own checkout already has every past report committed on disk
+    (report_builder.save_report writes there) -- no extra Drive round-trip needed. "_test"
+    -suffixed dates are excluded, same as report_builder.list_report_dates.
+    """
+    if config.IS_TEST_REPORT:
+        return
+
+    reports_dir = report_builder.LOCAL_REPORT_DIR
+    if not os.path.isdir(reports_dir):
+        return
+
+    dates = sorted(
+        (
+            fname.removesuffix(".html")
+            for fname in os.listdir(reports_dir)
+            if fname.endswith(".html") and not fname.removesuffix(".html").endswith("_test")
+        ),
+        reverse=True,
+    )
+
+    _write_json(
+        os.path.join(DOCS_DATA_DIR, "reports.json"),
+        {"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "dates": dates},
+    )
+    logger.info("Exported reports.json (%d report dates)", len(dates))
 
 
 def _chart_rows_for_ticker(raw_df: pd.DataFrame) -> list[dict]:
