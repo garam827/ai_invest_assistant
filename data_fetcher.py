@@ -131,9 +131,18 @@ def get_sp500_tickers() -> list[str]:
     return sorted(_fetch_sp500_table()["Symbol"].tolist())
 
 
-def fetch_ohlcv(ticker: str, period: str | None = None, start: str | None = None) -> pd.DataFrame:
-    """Fetch daily OHLCV for one ticker. Pass either `period` (e.g. '5y') or `start` (YYYY-MM-DD)."""
-    history = yf.Ticker(ticker).history(period=period, start=start, interval="1d")
+def fetch_ohlcv(
+    ticker: str, period: str | None = None, start: str | None = None, end: str | None = None
+) -> pd.DataFrame:
+    """Fetch daily OHLCV for one ticker. Pass either `period` (e.g. '5y') or `start` (YYYY-MM-DD).
+
+    `end` (YYYY-MM-DD, exclusive per yfinance's own convention) is normally left unset -- the
+    daily cron always wants "everything new," never a capped window. It exists for one-off manual
+    backfills where a later trading day's data must not leak in yet (e.g. recovering a missed
+    run without accidentally also pulling a day that hadn't closed when that run should have
+    happened) -- see run_daily_update/run_asset_class_update/run_full_collection's own `end` param.
+    """
+    history = yf.Ticker(ticker).history(period=period, start=start, end=end, interval="1d")
     if history.empty:
         return history
 
@@ -142,14 +151,14 @@ def fetch_ohlcv(ticker: str, period: str | None = None, start: str | None = None
     return history
 
 
-def run_initial_ingestion(drive_db: DriveDB, tickers: list[str] | None = None) -> None:
+def run_initial_ingestion(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> None:
     """First-run backfill: pull config.INITIAL_HISTORY_PERIOD of history per ticker and store to Drive."""
     tickers = tickers or get_sp500_tickers()
     logger.info("Starting initial ingestion for %d tickers", len(tickers))
 
     for ticker in tickers:
         try:
-            df = fetch_ohlcv(ticker, period=config.INITIAL_HISTORY_PERIOD)
+            df = fetch_ohlcv(ticker, period=config.INITIAL_HISTORY_PERIOD, end=end)
             if df.empty:
                 logger.warning("No data returned for %s, skipping", ticker)
                 continue
@@ -160,7 +169,7 @@ def run_initial_ingestion(drive_db: DriveDB, tickers: list[str] | None = None) -
         time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
 
 
-def sync_universe(drive_db: DriveDB) -> dict:
+def sync_universe(drive_db: DriveDB, end: str | None = None) -> dict:
     """Reconcile Drive's stored tickers against the live S&P 500 constituent list.
 
     New entrants get a full history backfill so Donchian/ATR windows are populated
@@ -185,7 +194,7 @@ def sync_universe(drive_db: DriveDB) -> dict:
 
     if to_add:
         logger.info("Universe sync: %d new S&P 500 ticker(s) to backfill: %s", len(to_add), to_add)
-        run_initial_ingestion(drive_db, tickers=to_add)
+        run_initial_ingestion(drive_db, tickers=to_add, end=end)
 
     active = sorted(current_sp500 & (stored | set(to_add)))
     drive_db.save_json(
@@ -202,15 +211,15 @@ def sync_universe(drive_db: DriveDB) -> dict:
     return {"active": active, "added": to_add, "inactive": inactive}
 
 
-def _update_one_ticker(drive_db: DriveDB, ticker: str) -> None:
+def _update_one_ticker(drive_db: DriveDB, ticker: str, end: str | None = None) -> None:
     """Fetch since the ticker's last stored date (or a full backfill if it has no data yet) and upsert."""
     existing = drive_db.load_ticker(ticker)
     if existing is not None and not existing.empty:
         last_date = pd.to_datetime(existing["Date"]).max()
         start = (last_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
-        new_df = fetch_ohlcv(ticker, start=start)
+        new_df = fetch_ohlcv(ticker, start=start, end=end)
     else:
-        new_df = fetch_ohlcv(ticker, period=config.INITIAL_HISTORY_PERIOD)
+        new_df = fetch_ohlcv(ticker, period=config.INITIAL_HISTORY_PERIOD, end=end)
 
     if new_df.empty:
         logger.info("No new data for %s", ticker)
@@ -220,7 +229,7 @@ def _update_one_ticker(drive_db: DriveDB, ticker: str) -> None:
     logger.info("Updated %s (%d total rows)", ticker, len(merged))
 
 
-def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None) -> None:
+def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> None:
     """Fetch the latest bar(s) per ticker and upsert into its Drive-backed Parquet file."""
     if tickers is None:
         universe = drive_db.load_json(UNIVERSE_FILENAME)
@@ -229,28 +238,33 @@ def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None) -> Non
 
     for ticker in tickers:
         try:
-            _update_one_ticker(drive_db, ticker)
+            _update_one_ticker(drive_db, ticker, end=end)
         except Exception:
             logger.exception("Failed to update %s", ticker)
         time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
 
 
-def run_asset_class_update(drive_db: DriveDB) -> None:
+def run_asset_class_update(drive_db: DriveDB, end: str | None = None) -> None:
     """Backfill (first run) or update (subsequent runs) the representative asset-class ETF proxies."""
     logger.info("Starting asset-class update for %d tickers", len(ASSET_CLASS_TICKERS))
     for ticker in ASSET_CLASS_TICKERS:
         try:
-            _update_one_ticker(drive_db, ticker)
+            _update_one_ticker(drive_db, ticker, end=end)
         except Exception:
             logger.exception("Failed to update asset-class ticker %s", ticker)
         time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
 
 
-def run_full_collection(drive_db: DriveDB) -> dict:
-    """One button's worth of work: S&P 500 membership sync + daily update + asset-class ETF update."""
-    sync_result = sync_universe(drive_db)
-    run_daily_update(drive_db)
-    run_asset_class_update(drive_db)
+def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
+    """One button's worth of work: S&P 500 membership sync + daily update + asset-class ETF update.
+
+    `end` (YYYY-MM-DD, exclusive): normally unset for the daily cron (fetch everything new,
+    unbounded). Pass it for a one-off manual catch-up that must not pull in a later trading
+    day's data than the run being recovered was meant to see -- see fetch_ohlcv's docstring.
+    """
+    sync_result = sync_universe(drive_db, end=end)
+    run_daily_update(drive_db, end=end)
+    run_asset_class_update(drive_db, end=end)
     return sync_result
 
 

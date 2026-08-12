@@ -123,7 +123,7 @@ def export_universe_json(drive_db: DriveDB) -> None:
     logger.info("Exported universe.json (%d S&P 500 tickers)", len(payload["sp500"]))
 
 
-def export_reports_index() -> None:
+def export_reports_index(history: dict | None = None) -> None:
     """docs/data/reports.json -- past daily report dates (newest first) with a saved
     docs/reports/{date}.html, for the React site's "리포트 히스토리" tab to link out to (the
     full LLM-narrative report itself isn't reproduced in React, just a link to the existing
@@ -131,6 +131,13 @@ def export_reports_index() -> None:
     since recommend.yml's own checkout already has every past report committed on disk
     (report_builder.save_report writes there) -- no extra Drive round-trip needed. "_test"
     -suffixed dates are excluded, same as report_builder.list_report_dates.
+
+    `history`: recommendation_engine's already-loaded _signal_history.json
+    (`{date: {ticker: action}}`, via load_signal_history) -- passed in rather than re-read
+    from Drive here, since the caller already has it loaded for the report's own embedded
+    history table. Each date entry gets its action grid attached (empty dict if that date
+    isn't in `history`) so the React tab can show the same B/H/S-per-ticker preview the
+    Streamlit report-history table shows, without opening every report individually.
     """
     if config.IS_TEST_REPORT:
         return
@@ -139,6 +146,7 @@ def export_reports_index() -> None:
     if not os.path.isdir(reports_dir):
         return
 
+    history = history or {}
     dates = sorted(
         (
             fname.removesuffix(".html")
@@ -147,10 +155,11 @@ def export_reports_index() -> None:
         ),
         reverse=True,
     )
+    entries = [{"date": date, "actions": history.get(date, {})} for date in dates]
 
     _write_json(
         os.path.join(DOCS_DATA_DIR, "reports.json"),
-        {"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "dates": dates},
+        {"generated_at": pd.Timestamp.now(tz="UTC").isoformat(), "dates": entries},
     )
     logger.info("Exported reports.json (%d report dates)", len(dates))
 

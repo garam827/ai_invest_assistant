@@ -60,9 +60,14 @@ export interface Universe {
   sp500: Sp500Meta[]
 }
 
+export interface ReportEntry {
+  date: string
+  actions: Record<string, Action>
+}
+
 export interface ReportsIndex {
   generated_at: string
-  dates: string[]
+  dates: ReportEntry[]
 }
 
 // One row of docs/data/charts/{ticker}.json. Numeric indicator columns are `number | null` --

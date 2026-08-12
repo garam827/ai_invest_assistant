@@ -227,7 +227,9 @@ def _build_rule_based_explanation(
     return "\n".join(lines)
 
 
-def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool = True) -> dict | None:
+def get_recommendation_for_ticker(
+    drive_db: DriveDB, ticker: str, use_llm: bool = True, as_of: str | None = None
+) -> dict | None:
     """Get a 매수/HOLD/매도 call for one ticker.
 
     The action itself always comes from signal_engine.get_mechanical_action — deterministic,
@@ -241,13 +243,28 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
     collects news but skips the OpenRouter call entirely, going straight to the rule-based
     explanation — distinct from config.SKIP_LLM_AND_NEWS below, which skips news too.
 
-    Returns None if the ticker has no data in Drive yet, or if that data is stale
-    (see _is_data_fresh) — a stale-data recommendation would be misleading.
+    `as_of` (YYYY-MM-DD, inclusive): compute the recommendation as of this trading day instead
+    of the ticker's true latest stored bar -- for backfilling a historical report whose real
+    run was lost or mislabeled (see _resolve_report_date). Bypasses _is_data_fresh (a
+    wall-clock check that doesn't apply to an intentionally historical snapshot) and always
+    goes straight to the rule-based explanation, skipping Exa/OpenRouter entirely -- Exa's
+    search is inherently "recent news relative to now," so calling it for a past `as_of` date
+    would attach today's news to a historical signal, which would be actively misleading
+    rather than merely incomplete.
+
+    Returns None if the ticker has no data in Drive yet, no data on or before `as_of` (when
+    given), or (without `as_of`) if the latest data is stale (see _is_data_fresh) — a
+    stale-data recommendation would be misleading.
     """
     raw_df = drive_db.load_ticker(ticker)
     if raw_df is None or raw_df.empty:
         return None
-    if not _is_data_fresh(raw_df):
+
+    if as_of is not None:
+        raw_df = raw_df[pd.to_datetime(raw_df["Date"]) <= pd.Timestamp(as_of)]
+        if raw_df.empty:
+            return None
+    elif not _is_data_fresh(raw_df):
         logger.warning(
             "%s data is stale (last bar %s), skipping recommendation", ticker, raw_df["Date"].max()
         )
@@ -269,8 +286,8 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
     ichimoku_confluence = signal_engine.get_ichimoku_confluence(summary, action)
 
     news: list[dict] = []
-    if config.SKIP_LLM_AND_NEWS:
-        logger.info("%s: SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
+    if as_of is not None or config.SKIP_LLM_AND_NEWS:
+        logger.info("%s: as_of backfill or SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
         text = _build_rule_based_explanation(
             ticker, action, summary, news, reason="disabled", ichimoku_confluence=ichimoku_confluence
         )
@@ -337,7 +354,7 @@ def get_recommendation_for_ticker(drive_db: DriveDB, ticker: str, use_llm: bool 
     }
 
 
-def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
+def get_sp500_signal_summary(drive_db: DriveDB, as_of: str | None = None) -> list[dict]:
     """Mechanical-only 매수/매도 pass over every active S&P 500 ticker (user request) — NOT
     news/LLM-enriched like get_recommendation_for_ticker's ASSET_CLASS_TICKERS flow, which
     stays 12-ticker-only specifically to keep Exa/OpenRouter usage bounded (see CLAUDE.md).
@@ -349,6 +366,10 @@ def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
     isn't worth listing individually — same "no card for nothing to report" principle as
     the HOLD-charts block). A single ticker's failure (missing/stale data) is skipped
     rather than aborting the whole pass.
+
+    `as_of` (YYYY-MM-DD, inclusive): same historical-backfill truncation as
+    get_recommendation_for_ticker's `as_of` — bypasses _is_data_fresh and truncates each
+    ticker's data to on-or-before this date instead of using its true latest bar.
     """
     universe = drive_db.load_json("_universe.json") or {}
     tickers = universe.get("active_tickers", [])
@@ -359,7 +380,13 @@ def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
     for ticker in tickers:
         try:
             raw_df = drive_db.load_ticker(ticker)
-            if raw_df is None or raw_df.empty or not _is_data_fresh(raw_df):
+            if raw_df is None or raw_df.empty:
+                continue
+            if as_of is not None:
+                raw_df = raw_df[pd.to_datetime(raw_df["Date"]) <= pd.Timestamp(as_of)]
+                if raw_df.empty:
+                    continue
+            elif not _is_data_fresh(raw_df):
                 continue
             summary = signal_engine.get_latest_signal_summary(raw_df)
             action = signal_engine.get_mechanical_action(summary)
@@ -372,6 +399,7 @@ def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
                     "description": descriptions.get(ticker, ticker),
                     "action": action,
                     "close": summary["close"],
+                    "date": str(summary["date"])[:10],
                 }
             )
         except Exception:
@@ -380,11 +408,43 @@ def get_sp500_signal_summary(drive_db: DriveDB) -> list[dict]:
     return results
 
 
-def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = None) -> dict:
+def _resolve_report_date(results: dict) -> str:
+    """The trading day this batch of recommendations actually reflects -- used for the report/
+    recommendations-JSON filename and the _signal_history.json key. Deliberately NOT
+    datetime.date.today(): a run can execute after UTC midnight relative to the trading day
+    it's reporting on (a scheduled run landing late, or a manual re-run the next day), and
+    date.today() would then mislabel the file with the wrong day -- silently overwritten later
+    that day when the *real* next-day report lands, permanently losing the mislabeled day's
+    report. This happened for real to 2026-08-06 (collect succeeded at 23:40 UTC that day, but
+    the chained recommend run didn't start until 00:08 UTC the next day, so its output got
+    saved as "2026-08-07" and was then clobbered by that day's actual run hours later).
+
+    Anchored on SPY specifically (falling back to any other result, then to today if `results`
+    is empty) since it's the most standard US-market trading-day proxy in ASSET_CLASS_TICKERS
+    -- every other weekday-only ticker should share its date; only BTC-USD (which trades
+    weekends) might not.
+    """
+    if "SPY" in results:
+        return str(results["SPY"]["date"])[:10]
+    if results:
+        return str(next(iter(results.values()))["date"])[:10]
+    return datetime.date.today().isoformat()
+
+
+def run_asset_class_recommendations(
+    drive_db: DriveDB, tickers: dict | None = None, as_of: str | None = None
+) -> dict:
     """Run get_recommendation_for_ticker for each representative asset-class ticker
     (data_fetcher.ASSET_CLASS_TICKERS by default — NOT the full S&P 500 universe), and
     persist the day's results to Drive as `_recommendations_{date}.json` (or
     `_recommendations_{date}_test.json` when config.IS_TEST_REPORT is set — see below).
+
+    `as_of` (YYYY-MM-DD, inclusive): backfill a historical report as of this trading day
+    instead of every ticker's true latest bar -- threaded through to
+    get_recommendation_for_ticker/get_sp500_signal_summary, and used directly as the report
+    date (skipping _resolve_report_date's SPY-anchored inference, since the caller already
+    knows exactly which day this is). For recovering a specific lost/mislabeled past day
+    (see _resolve_report_date) -- the normal daily cron never sets this.
     """
     tickers = tickers if tickers is not None else data_fetcher.ASSET_CLASS_TICKERS
     logger.info("Starting asset-class recommendations for %d tickers", len(tickers))
@@ -392,7 +452,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
     results: dict[str, dict] = {}
     for ticker in tickers:
         try:
-            reco = get_recommendation_for_ticker(drive_db, ticker)
+            reco = get_recommendation_for_ticker(drive_db, ticker, as_of=as_of)
             if reco is None:
                 logger.warning("No data (or stale data) for %s, skipping recommendation", ticker)
                 continue
@@ -401,7 +461,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
         except Exception:
             logger.exception("Failed to generate recommendation for %s", ticker)
 
-    date = datetime.date.today().isoformat()
+    date = as_of if as_of is not None else _resolve_report_date(results)
     # A manual/sample publish (config.IS_TEST_REPORT) gets its own filename via a "_test"
     # suffix — applied to both the recommendations JSON and the report below — so re-running
     # the workflow to check the pipeline/report/Telegram plumbing can't clobber that day's
@@ -445,10 +505,16 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
     # Recent signal history (최근 20거래일) for the report's own reference table — Drive-only,
     # never reaches the LLM/news calls above. A failure here must not block the report either.
     try:
-        recent_history = _recent_signal_history(load_signal_history(drive_db))
+        history_for_table = load_signal_history(drive_db)
+        if as_of is not None:
+            # Don't let the embedded "recent history" table leak dates *after* the day this
+            # backfilled report claims to represent.
+            history_for_table = {d: v for d, v in history_for_table.items() if d <= as_of}
+        recent_history = _recent_signal_history(history_for_table)
     except Exception:
         logger.exception("Failed to load signal history (report will omit this section)")
         recent_history = {}
+        history_for_table = {}
 
     # Experimental ML prediction simulation (prediction_model/generate_predictions.py) —
     # trained/refreshed entirely outside this cron path, this just reads whatever was last
@@ -464,7 +530,7 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
     # LLM/news, see get_sp500_signal_summary's docstring), unlike prediction_simulation/
     # backtest_summary below which are manual/local artifacts this cron only ever reads.
     try:
-        sp500_signals = get_sp500_signal_summary(drive_db)
+        sp500_signals = get_sp500_signal_summary(drive_db, as_of=as_of)
     except Exception:
         logger.exception("Failed to compute S&P 500 signal summary (report will omit this section)")
         sp500_signals = []
@@ -508,21 +574,27 @@ def run_asset_class_recommendations(drive_db: DriveDB, tickers: dict | None = No
     # GitHub Pages) -- overwritten every run, independent of the HTML report above. A
     # failure here must never take down the report/Telegram summary that already succeeded,
     # same principle as every other optional step in this function. No-ops entirely on a
-    # manual/sample (config.IS_TEST_REPORT) run, same as report_url above.
-    try:
-        static_export.export_signals_json(results, sp500_signals, signal_history=recent_history)
-        static_export.export_universe_json(drive_db)
-        static_export.export_chart_data(drive_db)
-        static_export.export_reports_index()
-    except Exception:
-        logger.exception("Failed to export static JSON for the React site (report/Telegram unaffected)")
+    # manual/sample (config.IS_TEST_REPORT) run, same as report_url above -- and likewise
+    # skipped entirely for an `as_of` historical backfill, since docs/data/*.json is always
+    # meant to reflect the *current* latest snapshot; overwriting it with a past date's
+    # (deliberately stale, possibly HOLD-heavy) results would regress the live site.
+    if as_of is None:
+        try:
+            static_export.export_signals_json(results, sp500_signals, signal_history=recent_history)
+            static_export.export_universe_json(drive_db)
+            static_export.export_chart_data(drive_db)
+            static_export.export_reports_index(history_for_table)
+        except Exception:
+            logger.exception("Failed to export static JSON for the React site (report/Telegram unaffected)")
 
-    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+    # Skipped for an `as_of` historical backfill -- a Telegram message reading like "today's"
+    # summary for a day that's actually several days in the past would just be confusing.
+    if as_of is None and config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
         try:
             telegram_notifier.notify_recommendations(results, report_url=report_url, paper_positions=open_positions)
         except Exception:
             logger.exception("Failed to send Telegram notifications (results still returned)")
-    else:
+    elif as_of is None:
         logger.info("TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID not set, skipping Telegram notification")
 
     return results
