@@ -43,11 +43,6 @@ RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 # table's per-ticker action columns. Real dates only — see run_asset_class_recommendations.
 SIGNAL_HISTORY_FILENAME = "_signal_history.json"
 
-# Written by prediction_model/generate_predictions.py (manual/local, see
-# prediction_model_spec.md) -- this filename must stay in sync with that script's own
-# PREDICTION_SIMULATION_FILENAME constant. Read-only here; this cron path never writes it.
-PREDICTION_SIMULATION_FILENAME = "_prediction_simulation.json"
-
 # Written by backtest.py's `python backtest.py full-universe` (manual/local, see
 # investment_assistant_spec.md [기능 7]) -- filename must stay in sync with that script's own
 # BACKTEST_SUMMARY_FILENAME constant. Read-only here; this cron path never runs a backtest.
@@ -516,19 +511,9 @@ def run_asset_class_recommendations(
         recent_history = {}
         history_for_table = {}
 
-    # Experimental ML prediction simulation (prediction_model/generate_predictions.py) —
-    # trained/refreshed entirely outside this cron path, this just reads whatever was last
-    # published to Drive. Missing (never generated yet) or a load failure both degrade to
-    # simply omitting the report section, same as the other optional sections above.
-    try:
-        prediction_simulation = drive_db.load_json(PREDICTION_SIMULATION_FILENAME)
-    except Exception:
-        logger.exception("Failed to load prediction simulation (report will omit this section)")
-        prediction_simulation = None
-
     # S&P 500 mechanical-only signals (user request) — computed fresh every run (cheap, no
-    # LLM/news, see get_sp500_signal_summary's docstring), unlike prediction_simulation/
-    # backtest_summary below which are manual/local artifacts this cron only ever reads.
+    # LLM/news, see get_sp500_signal_summary's docstring), unlike backtest_summary below
+    # which is a manual/local artifact this cron only ever reads.
     try:
         sp500_signals = get_sp500_signal_summary(drive_db, as_of=as_of)
     except Exception:
@@ -536,13 +521,22 @@ def run_asset_class_recommendations(
         sp500_signals = []
 
     # Full-universe backtest summary (backtest.py's `python backtest.py full-universe`,
-    # manual/local — see investment_assistant_spec.md [기능 7]) — read-only, same pattern as
-    # prediction_simulation above. Missing/failed load just omits that report section.
+    # manual/local — see investment_assistant_spec.md [기능 7]) — read-only. Missing/failed
+    # load just omits that report section, same as sp500_signals above.
     try:
         backtest_summary = drive_db.load_json(BACKTEST_SUMMARY_FILENAME)
     except Exception:
         logger.exception("Failed to load backtest summary (report will omit this section)")
         backtest_summary = None
+
+    # VIX + US 10Y treasury yield macro-context snapshot (user request) — fetched fresh live
+    # via yfinance every run, not stored to Drive/run through signal_engine (see
+    # data_fetcher.fetch_macro_snapshot's docstring). A fetch failure just omits the section.
+    try:
+        macro_snapshot = data_fetcher.fetch_macro_snapshot()
+    except Exception:
+        logger.exception("Failed to fetch macro snapshot (report will omit this section)")
+        macro_snapshot = {}
 
     report_url = None
     if results:
@@ -552,9 +546,9 @@ def run_asset_class_recommendations(
                 results,
                 paper_positions=open_positions,
                 signal_history=recent_history,
-                prediction_simulation=prediction_simulation,
                 sp500_signals=sp500_signals,
                 backtest_summary=backtest_summary,
+                macro_snapshot=macro_snapshot,
             )
             report_builder.save_report(drive_db, report_date, report_html)
             # A test publish now does reach docs/reports/GitHub Pages too (v3.52, under its

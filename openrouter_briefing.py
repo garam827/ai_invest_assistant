@@ -12,6 +12,7 @@ import re
 import requests
 
 import config
+import data_fetcher
 
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -42,12 +43,20 @@ _RECOMMENDATION_PATTERN = re.compile(r"추천\s*[:：]\s*(매수|HOLD|매도)")
 
 PORTFOLIO_OVERVIEW_SYSTEM_PROMPT = (
     "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
-    "아래는 오늘 대표 자산군들의 기계적 추세추종 판정 결과이고, 이어서 최근 며칠~30일간의 날짜별 "
-    "자산군별 판정 이력이 함께 주어질 수 있다. 각 판정은 이미 규칙에 따라 확정된 사실이며, 너는 이 "
-    "판정을 절대 바꾸거나 재해석하지 않는다. 다만 (1) 오늘 여러 자산군에 걸쳐 동시에 나타나는 추세와, "
-    "(2) 최근 이력이 주어졌다면 그 안에서 관찰되는 추세 전환이나 동조화(예: 최근 며칠 사이 여러 자산군이 "
-    "동시에 매수로 전환)를 감정 없이 담담한 사실 위주로 한 문단으로 종합 해설하라 — 향후 전망이나 예측은 "
-    "절대 덧붙이지 마라."
+    "아래는 오늘 대표 자산군들의 기계적 추세추종 판정 결과다(카테고리 표기 포함 — 주식/암호화폐는 "
+    "위험자산, 채권/통화는 안전자산, 귀금속/원자재는 인플레이션·공급 충격에 대한 헤지 성격을 띤다). "
+    "이어서 최근 며칠~30일간의 날짜별 자산군별 판정 이력이 함께 주어질 수 있다. 각 판정은 이미 규칙에 "
+    "따라 확정된 사실이며, 너는 이 판정을 절대 바꾸거나 재해석하지 않는다.\n\n"
+    "단, 판정을 티커별로 다시 나열하기만 하는 답변은 쓰지 마라 — 그 정보는 이미 표로 그대로 보인다. "
+    "대신 다음을 종합해 '이 조합이 오늘 무엇을 의미하는지'를 설명하는 것이 이 해설의 목적이다: "
+    "(1) 위험자산군과 안전자산군의 판정이 같은 방향으로 움직이는지 엇갈리는지, 그것이 시장의 위험 "
+    "선호·회피 심리에 대해 무엇을 시사하는지, "
+    "(2) 최근 이력이 주어졌다면 그 안에서 나타나는 추세 전환·동조화(예: 며칠 사이 여러 자산군이 동시에 "
+    "매수로 전환)가 오늘 스냅샷 대비 상황을 강화하는 흐름인지 되돌리는 흐름인지, "
+    "(3) 특정 자산군만 유독 다른 자산군과 다르게 움직였다면 그 괴리가 왜 주목할 만한지. "
+    "이 해석은 어디까지나 오늘 나타난 자산군 간 상대적 패턴에 대한 참고적 해설일 뿐, 특정 자산의 향후 "
+    "가격이나 방향성을 예측·전망하는 것이 아니며, 단정적인 표현도 쓰지 마라. 감정적 과장 없이 담담한 "
+    "어조를 유지하되, 표만 봐서는 알 수 없는 '의미'를 짚어주는 데 집중해 한 문단으로 작성하라."
 )
 
 
@@ -146,7 +155,8 @@ def generate_portfolio_overview(results: dict, signal_history: dict | None = Non
     """
     lines = ["[오늘의 자산군별 판정]"]
     for ticker, reco in results.items():
-        lines.append(f"- {ticker}: {reco['action']} (종가 {reco['close']:.2f})")
+        category = data_fetcher.ASSET_CLASS_TICKERS.get(ticker, {}).get("category", "")
+        lines.append(f"- {ticker} ({category}): {reco['action']} (종가 {reco['close']:.2f})")
 
     if signal_history:
         lines.append("\n[최근 시그널 이력 (날짜: 자산군=액션, ...)]")
@@ -157,56 +167,3 @@ def generate_portfolio_overview(results: dict, signal_history: dict | None = Non
     prompt = "\n".join(lines) + "\n\n위 오늘의 판정과 최근 시그널 이력을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
     return _call_chat(PORTFOLIO_OVERVIEW_SYSTEM_PROMPT, prompt)
 
-
-PREDICTION_COMMENTARY_SYSTEM_PROMPT = (
-    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
-    "아래는 실험적 머신러닝 모델이 대표 자산군별로 추정한 '추세 점수'다 — "
-    "log((향후 30일 예상 매수일수+1) / (향후 30일 예상 매도일수+1))로 계산되며, 이 모델은 "
-    "과거 시그널 패턴만으로 학습됐고 검증이 제한적이다(단순 평균 예측 대비 소폭 개선 수준). "
-    "각 자산의 예측값은 그 자산 자신의 과거 평균 점수와 함께 주어지고, 그 뒤에 '평균보다 높음'/"
-    "'평균보다 낮음'이라는 판정도 이미 계산되어 붙어 있다 — 이 판정은 네가 다시 계산하지 말고 "
-    "그대로 신뢰하고 인용하라(두 숫자, 특히 부호가 다르거나 둘 다 음수인 경우 직접 비교하면 착오가 "
-    "생기기 쉽다). 점수가 음수인 것 자체는 매수(신고점 갱신, 하루짜리 이벤트)보다 매도(트레일링 "
-    "스탑 하회, 여러 날 지속되는 상태) 신호가 구조적으로 훨씬 잦기 때문이며 이상 신호가 아니다. "
-    "(1) 주어진 '평균보다 높음/낮음' 판정을 자산별로 그대로 인용하고, (2) 여러 자산군에 걸쳐 "
-    "공통으로 나타나는 패턴을 감정 없이 담담한 사실 위주로 짚어라. 추가로 (3) 주식/암호화폐 같은 경기민감 자산군과 채권/통화 같은 "
-    "안전자산군 사이에서 이 패턴이 상대적으로 어떻게 갈리는지를 근거로, 이것이 통상적인 경기 "
-    "사이클(확장기/후기 확장기/수축기/회복기 등) 중 어떤 국면과 유사한 특징을 보이는지 참고 삼아 "
-    "짧게 고찰해도 좋다 — 다만 이는 어디까지나 지금 나타난 자산군 간 상대적 패턴에 대한 참고적 "
-    "해석일 뿐, 특정 자산의 향후 가격이나 방향성을 예측·전망하는 것이 아니며 확신에 찬 단정적 "
-    "표현도 쓰지 마라. 이 해설은 이 실험적 모델의 결과를 설명하는 것일 뿐이며, 실제 매수/HOLD/매도 "
-    "판정(기계적 규칙 기반)을 절대 바꾸거나 재해석하지 않는다."
-)
-
-
-def generate_prediction_commentary(predictions: dict) -> str:
-    """One-paragraph synthesis of prediction_model's experimental trend-score simulation
-    (report_builder.build_daily_report_html's "AI 예측 시뮬레이션" section — see
-    prediction_model_spec.md). `predictions` is _prediction_simulation.json's own
-    "predictions" dict ({ticker: {trend_score, historical_avg_score, ...}}).
-
-    Commentary only — explicitly forbidden (see PREDICTION_COMMENTARY_SYSTEM_PROMPT) from
-    predicting future price/direction or influencing any mechanical action, same
-    advisory-only principle as generate_portfolio_overview/generate_recommendation. May
-    also reflect on which economic-cycle phase the cross-asset pattern resembles (user
-    request) -- scoped to a qualitative read of today's relative pattern, not a forecast.
-
-    The "above/below average" comparison per ticker is computed here in Python and handed
-    to the model pre-labeled, rather than asking it to compare two floats itself across all
-    12 tickers in one pass — a real run produced a factual error (claimed QQQ/SPY were
-    above their own historical average when both were actually below it) that a stricter
-    wording alone wasn't reliable enough to prevent; removing the arithmetic from the
-    model's job entirely is the actual fix.
-    """
-    lines = ["[자산군별 추세 점수 (실험적 ML 예측, 평균 비교는 이미 계산되어 있음)]"]
-    for ticker, pred in predictions.items():
-        comparison = "평균보다 높음" if pred["trend_score"] >= pred["historical_avg_score"] else "평균보다 낮음"
-        lines.append(
-            f"- {ticker}: 예측 {pred['trend_score']:+.3f} / 과거 평균 {pred['historical_avg_score']:+.3f} → {comparison}"
-        )
-    prompt = (
-        "\n".join(lines)
-        + "\n\n위 자산군별 추세 점수를 각 자산의 과거 평균과 비교해 요약하고, "
-        "이 패턴이 어떤 경기 사이클 국면과 유사한지도 참고 삼아 짚어 한 문단으로 정리하라."
-    )
-    return _call_chat(PREDICTION_COMMENTARY_SYSTEM_PROMPT, prompt)

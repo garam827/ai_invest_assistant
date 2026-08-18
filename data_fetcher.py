@@ -116,6 +116,119 @@ ASSET_CLASS_TICKERS = {
 }
 
 
+# Pure market-context indicators for the daily report's macro snapshot (user request) --
+# raw index/yield quotes, same "not directly tradable" reasoning as the ASSET_CLASS_TICKERS
+# comment above, so they're deliberately NOT tracked like ASSET_CLASS_TICKERS: no Drive
+# storage, no signal_engine, no trend-following signal of their own -- fetch_macro_snapshot
+# below pulls a fresh live value at report-build time purely for display. Treasury yields
+# span short/mid/long maturities (^IRX 13주 T-bill, ^TNX 10년, ^TYX 30년) per user request,
+# not just the original 10-year alone.
+MACRO_TICKERS = {
+    "^VIX": {"label": "VIX (변동성지수)", "format": "index"},
+    "^IRX": {"label": "美 13주 단기 국채금리", "format": "yield_pct"},
+    "^TNX": {"label": "美 10년물 국채금리", "format": "yield_pct"},
+    "^TYX": {"label": "美 30년 장기 국채금리", "format": "yield_pct"},
+}
+
+# ICE BofA US High Yield Index Option-Adjusted Spread -- the standard reference series for
+# "하이일드 스프레드" (junk bond yield premium over Treasuries, in percentage points). Not
+# available via yfinance, so pulled separately from FRED's public CSV export endpoint (no
+# API key required, same "raw requests, no SDK" style as news_fetcher/openrouter_briefing).
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+FRED_HY_SPREAD_SERIES = "BAMLH0A0HYM2"
+
+
+def fetch_high_yield_spread() -> dict | None:
+    """Fresh High Yield bond spread (ICE BofA OAS, FRED series BAMLH0A0HYM2) -- same
+    "pure display, not a signal" treatment as the yfinance-sourced entries in
+    fetch_macro_snapshot, just from FRED since this series isn't on yfinance.
+
+    FRED's CSV marks holidays/not-yet-published days with "." instead of a number -- those
+    rows are dropped before picking the latest two values, so "prior_value" is always the
+    previous *published* observation, not necessarily the previous calendar day.
+
+    Returns None (not a dict) if the fetch/parse fails or yields no usable rows at all --
+    fetch_macro_snapshot treats that the same as any other missing entry, section omitted.
+
+    Retries once after a short pause -- this endpoint (unlike yfinance/Exa elsewhere in this
+    project) was observed occasionally resetting the connection outright rather than
+    returning an HTTP error, so a single bare attempt would drop the section more often than
+    the data's actual availability warrants.
+    """
+    last_error: Exception | None = None
+    response = None
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                FRED_CSV_URL, params={"id": FRED_HY_SPREAD_SERIES}, timeout=30, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(2)
+    if response is None:
+        raise last_error
+    df = pd.read_csv(io.StringIO(response.text))
+    df.columns = ["date", "value"]
+    df = df[df["value"] != "."]
+    if df.empty:
+        return None
+    df["value"] = df["value"].astype(float)
+    latest, prior = df.iloc[-1], (df.iloc[-2] if len(df) >= 2 else None)
+    return {
+        "label": "하이일드 스프레드 (ICE BofA OAS)",
+        "format": "spread_pct",
+        "value": float(latest["value"]),
+        "prior_value": float(prior["value"]) if prior is not None else None,
+        "as_of": str(latest["date"]),
+    }
+
+
+def fetch_macro_snapshot() -> dict:
+    """Fresh macro-context snapshot for the daily report: VIX, short/mid/long US Treasury
+    yields, and the High Yield bond spread.
+
+    Pulled live every time this is called (not cached/stored to Drive -- these change
+    intraday and the report only needs "as of report-build time"). Returns
+    {key: {"label": ..., "format": "index"|"yield_pct"|"spread_pct", "value": float,
+    "prior_value": float | None, "as_of": "YYYY-MM-DD"}}; "prior_value" is the previous
+    published value, for a simple delta in the report. yfinance's ^IRX/^TNX/^TYX closes are
+    already yields in percent (e.g. 4.736 == 4.736%), not the historical CBOE "yield x10"
+    quoting convention -- no extra scaling needed.
+
+    A per-metric fetch failure (yfinance ticker or the separate FRED call) is skipped, not
+    fatal -- same "an optional section just gets omitted, the rest of the report/pipeline is
+    unaffected" pattern as every other optional section in this project.
+    """
+    snapshot = {}
+    for ticker, meta in MACRO_TICKERS.items():
+        try:
+            history = yf.Ticker(ticker).history(period="5d", interval="1d")
+            if history.empty:
+                continue
+            closes = history["Close"]
+            snapshot[ticker] = {
+                "label": meta["label"],
+                "format": meta["format"],
+                "value": float(closes.iloc[-1]),
+                "prior_value": float(closes.iloc[-2]) if len(closes) >= 2 else None,
+                "as_of": closes.index[-1].strftime("%Y-%m-%d"),
+            }
+        except Exception:
+            logger.exception("Failed to fetch macro snapshot for %s", ticker)
+
+    try:
+        hy_spread = fetch_high_yield_spread()
+        if hy_spread:
+            snapshot["HY_SPREAD"] = hy_spread
+    except Exception:
+        logger.exception("Failed to fetch high yield spread")
+
+    return snapshot
+
+
 def _fetch_sp500_table() -> pd.DataFrame:
     """Scrape the current S&P 500 constituent table from Wikipedia (Symbol + GICS Sector, among others)."""
     # Wikipedia blocks urllib's default user agent (403); fetch with a browser-like one instead.

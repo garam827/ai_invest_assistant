@@ -42,7 +42,7 @@ STYLE = """
      분석(.analysis)이 상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴고,
      교차 자산 총평(.overview)도 같은 이유로 v3.33에서 제한을 없앴다. */
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
-  /* 정보 밀도가 높은 표(요약/모의투자/시그널 이력/AI 예측) 공통 스타일 -- 한눈에 훑어볼 수 있도록
+  /* 정보 밀도가 높은 표(요약/모의투자/시그널 이력/S&P 500 시그널/백테스트) 공통 스타일 -- 한눈에 훑어볼 수 있도록
      행 높이를 낮게 유지한다. 원래 table.summary(패딩 6px 10px)와 table.signal-history(패딩 2px 6px)
      가 서로 다른 밀도로 분리돼 있었으나, 리포트의 모든 표를 동일하게 조밀한 밀도로 맞춰달라는
      요청으로 하나의 table.dense 클래스로 통합했다(v3.44). */
@@ -79,11 +79,53 @@ STYLE = """
   .copy-summary-bar button { font: inherit; font-weight: bold; padding: 0.4rem 0.9rem; border: 1px solid #546e7a; border-radius: 6px; background: #fff; color: #37474f; cursor: pointer; }
   .copy-summary-bar button:hover { background: #546e7a; color: #fff; }
   .copy-summary-bar .copy-caption { font-size: 0.82rem; color: #607d8b; }
+  .macro-snapshot { font-size: 0.85rem; color: #555; margin: 0.6rem 0 1rem; }
+  .macro-snapshot .macro-item { margin-right: 0.5rem; }
 """
 
 
 def _esc(text: str) -> str:
     return html.escape(text, quote=False)
+
+
+def _format_macro_item(data: dict) -> tuple[str, str]:
+    """Shared value/delta formatting for one macro_snapshot entry -- used by both the HTML
+    strip (_build_macro_snapshot_html) and the copy-to-clipboard Markdown mirror
+    (_build_report_markdown) so the two can't drift apart. "yield_pct"/"spread_pct" are both
+    percentage-point values (Treasury yields vs. the High Yield OAS spread) -- yields get 3
+    decimals (matches yfinance's own precision), the spread 2 (matches FRED's own precision);
+    both use "%p" for the delta since a change in either is itself measured in percentage
+    points. "index" (VIX) has no natural unit, so its delta is just a plain number.
+    """
+    value = data["value"]
+    prior = data.get("prior_value")
+    fmt = data.get("format")
+    if fmt in ("yield_pct", "spread_pct"):
+        decimals = 3 if fmt == "yield_pct" else 2
+        value_str = f"{value:.{decimals}f}%"
+        delta_str = f" (전일 대비 {value - prior:+.{decimals}f}%p)" if prior is not None else ""
+    else:
+        value_str = f"{value:.2f}"
+        delta_str = f" (전일 대비 {value - prior:+.2f})" if prior is not None else ""
+    return value_str, delta_str
+
+
+def _build_macro_snapshot_html(macro_snapshot: dict | None) -> str:
+    """macro_snapshot: data_fetcher.fetch_macro_snapshot's output (VIX, short/mid/long US
+    Treasury yields, High Yield bond spread -- fetched fresh live by the caller at
+    report-build time; see that function's docstring for why these stay outside the
+    ASSET_CLASS_TICKERS/signal_engine pipeline). Purely informational display, not a signal
+    of any kind. Omitted entirely if empty, same "no section for nothing to show" principle
+    used throughout this file.
+    """
+    if not macro_snapshot:
+        return ""
+
+    items = []
+    for data in macro_snapshot.values():
+        value_str, delta_str = _format_macro_item(data)
+        items.append(f"<span class='macro-item'><b>{_esc(data['label'])}</b> {value_str}{delta_str}</span>")
+    return f"<div class='macro-snapshot'>{' &nbsp;·&nbsp; '.join(items)}</div>"
 
 
 def _build_summary_table_html(results: dict) -> str:
@@ -151,97 +193,6 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
 
 
-def _build_prediction_simulation_html(prediction_simulation: dict | None, commentary: str = "") -> str:
-    """prediction_simulation: prediction_model/generate_predictions.py's output
-    ({"generated_at": ..., "predictions": {ticker: {as_of_date, trend_score, val_mae,
-    baseline_mae, improvement_pct, historical_avg_score}}}), loaded read-only from Drive by
-    the caller (recommendation_engine) -- this experimental ML model is trained/refreshed
-    manually, entirely outside collect.yml/recommend.yml (see prediction_model_spec.md
-    section 7).
-
-    `commentary` (optional, openrouter_briefing.generate_prediction_commentary's output --
-    computed by the caller, same pattern as `overview`/generate_portfolio_overview) is a
-    one-paragraph LLM read of the scores below, rendered right under the disclaimer.
-    Commentary-only, same advisory-only constraint as the rest of the LLM sections --
-    PREDICTION_COMMENTARY_SYSTEM_PROMPT explicitly forbids it from predicting future
-    price/direction or touching any mechanical action.
-
-    `trend_score` is log((매수일+1)/(매도일+1)) over the predicted next 30 days — positive
-    means fresh breakouts (매수) outnumber trailing-stop breaches (매도), negative the
-    opposite. It's compared against `historical_avg_score` (that ticker's own long-run
-    average) rather than against zero, because 매도 structurally outnumbers 매수 for nearly
-    every one of these 12 tickers (매수 = a one-day breakout event; 매도 = a state that can
-    persist for many days during a drawdown) — a negative score is the norm, not a red flag
-    on its own (see prediction_model_spec.md section 6.1 and the disclaimer text below,
-    which explains this directly in the report itself per user request).
-
-    Each ticker carries its own `as_of_date` rather than one report-wide date -- BTC-USD
-    trades on weekends and nothing else here does, so "the most recent date" can genuinely
-    differ per ticker (see generate_predictions.py's _latest_window).
-
-    Explicitly experimental and unvalidated beyond a single train/val split -- rendered
-    with a disclaimer and each ticker's own validation MAE improvement over a naive
-    "predict the historical average" baseline as a rough reliability indicator, so a
-    reader isn't left guessing how much to trust it. Never reorders or replaces the
-    mechanical 매수/HOLD/매도 signals elsewhere in the report -- same "advisory-only"
-    principle as the LLM sections. Omitted entirely if not given/empty.
-    """
-    predictions = (prediction_simulation or {}).get("predictions") or {}
-    if not predictions:
-        return ""
-
-    # Same ticker order + category grouping as _build_summary_table_html, so the two
-    # tables read as directly comparable rather than one being alphabetical (the order
-    # generate_predictions.py happens to iterate its wide-format ticker array in) and the
-    # other grouped by ASSET_CLASS_TICKERS' definition order.
-    rows = []
-    last_category = None
-    for ticker, meta in data_fetcher.ASSET_CLASS_TICKERS.items():
-        if ticker not in predictions:
-            continue
-        pred = predictions[ticker]
-        category = meta.get("category", "")
-        if category != last_category:
-            rows.append(f"<tr class='category-row'><td colspan='6'>{_esc(category)}</td></tr>")
-            last_category = category
-        score_class = "pnl-positive" if pred["trend_score"] >= pred["historical_avg_score"] else "pnl-negative"
-        rows.append(
-            "<tr>"
-            f"<td>{_esc(ticker)}</td>"
-            f"<td>{_esc(meta.get('label', ''))}</td>"
-            f"<td>{_esc(pred.get('as_of_date', ''))}</td>"
-            f"<td class='{score_class}'>{pred['trend_score']:+.3f}</td>"
-            f"<td>{pred['historical_avg_score']:+.3f}</td>"
-            f"<td>{pred['improvement_pct']:.1f}%</td>"
-            "</tr>"
-        )
-    table = (
-        "<table class='dense'><thead><tr>"
-        "<th>티커</th><th>자산</th><th>기준일</th><th>추세 점수(예측)</th><th>과거 평균 점수</th>"
-        "<th>신뢰도(단순평균 대비 개선율)</th>"
-        "</tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
-    )
-    disclaimer = (
-        "<div class='prediction-disclaimer'>이 표는 과거 시그널·가격 패턴으로 학습한 실험적 "
-        "머신러닝 모델이 향후 30일간의 <b>추세 점수</b>를 추정한 것입니다 — 위의 매수/HOLD/매도 "
-        "판정(기계적 규칙 기반)과는 완전히 별개이며, 어떤 경우에도 그 판정을 대체하거나 바꾸지 "
-        "않습니다.<br><br>"
-        "<b>추세 점수 = log((매수일수+1) / (매도일수+1))</b> — 양수면 신고점 갱신(매수)이 "
-        "트레일링 스탑 하회(매도)보다 많다는 뜻이고, 음수면 그 반대입니다.<br>"
-        "<b>왜 대부분 음수로 나오는가</b>: 매수는 그날 하루 20일/100일 최고가를 새로 갱신해야만 "
-        "발동하는 뾰족한 이벤트인 반면, 매도는 트레일링 스탑(최근 고점 − 3×ATR) 아래로 한 번 "
-        "내려가면 가격이 다시 회복할 때까지 여러 날 계속 유지되는 상태입니다 — 그래서 12개 자산군 "
-        "거의 전부 과거 전체 기간에서 매도로 분류된 날이 매수로 분류된 날보다 훨씬 많습니다. "
-        "이 점수가 음수라는 사실 자체는 이상 신호가 아니라 구조적으로 당연한 결과이며, 그 자산 "
-        "<b>자신의 과거 평균 점수</b>보다 지금 예측이 더 높은지/낮은지가 실제로 의미 있는 비교입니다.<br><br>"
-        "\"신뢰도\"는 검증 구간에서 단순 평균 예측 대비 오차(MAE)가 얼마나 줄었는지를 나타내며, "
-        "수치가 낮다고 예측이 틀렸다는 뜻은 아니지만 참고용 이상으로 받아들이지 마세요."
-        "</div>"
-    )
-    commentary_html = f"<p class='overview'>{_esc(commentary)}</p>" if commentary else ""
-    return f"<h2>AI 예측 시뮬레이션 (실험적)</h2>{disclaimer}{commentary_html}{table}"
-
-
 def _build_sp500_signals_html(sp500_signals: list[dict] | None) -> str:
     """sp500_signals: recommendation_engine.get_sp500_signal_summary's output -- mechanical-
     only 매수/매도 calls (signal_engine.get_mechanical_action) across every active S&P 500
@@ -275,7 +226,10 @@ def _build_sp500_signals_html(sp500_signals: list[dict] | None) -> str:
         "<p style='color:#888;font-size:0.85rem'>기계적 규칙 기반 판정만 표시됩니다 — "
         "뉴스·LLM 분석은 위 대표 자산군 12종에만 적용됩니다.</p>"
     )
-    return f"<h2>S&amp;P 500 매수/매도 시그널 ({len(sp500_signals)}종목)</h2>{note}{table}"
+    return (
+        "<h2>S&amp;P 500 매수/매도 시그널</h2>"
+        f"<details><summary>📋 펼쳐서 보기 ({len(sp500_signals)}종목)</summary>{note}{table}</details>"
+    )
 
 
 def _build_backtest_summary_html(backtest_summary: dict | None) -> str:
@@ -339,7 +293,10 @@ def _build_backtest_summary_html(backtest_summary: dict | None) -> str:
         "참고용으로만 활용하세요."
         "</div>"
     )
-    return f"<h2>전체 종목 백테스트 요약 (기준일: {generated_at})</h2>{disclaimer}{table}"
+    return (
+        f"<h2>전체 종목 백테스트 요약 (기준일: {generated_at})</h2>"
+        f"<details><summary>📋 펼쳐서 보기 ({len(backtest_summary['rows'])}종목)</summary>{disclaimer}{table}</details>"
+    )
 
 
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
@@ -484,13 +441,12 @@ def _build_report_markdown(
     overview: str,
     results: dict,
     signal_history: dict | None,
-    prediction_simulation: dict | None,
-    prediction_commentary: str,
     paper_positions: list[dict] | None,
     sp500_signals: list[dict] | None = None,
+    macro_snapshot: dict | None = None,
 ) -> str:
-    """Markdown mirror of everything from the page title through the AI 예측 시뮬레이션 /
-    모의 투자 sections (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
+    """Markdown mirror of everything from the page title through the 모의 투자 section
+    (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
     built directly from the same Python data the HTML sections above are built from, not by
     parsing the rendered HTML, so the two can never drift out of sync with each other and
     the HTML layout is completely untouched by this feature (user request: the report's own
@@ -498,6 +454,13 @@ def _build_report_markdown(
     heading, for pasting into another LLM for market analysis.
     """
     lines = [f"# 톰 바소 추세추종 일일 리포트 ({date})", ""]
+
+    if macro_snapshot:
+        macro_parts = []
+        for data in macro_snapshot.values():
+            value_str, delta_str = _format_macro_item(data)
+            macro_parts.append(f"**{data['label']}** {value_str}{delta_str}")
+        lines += [" · ".join(macro_parts), ""]
 
     if overview:
         lines += ["## 오늘의 종합 총평", "", overview, ""]
@@ -546,35 +509,6 @@ def _build_report_markdown(
             lines.append(f"| {date_key} | " + " | ".join(cells) + " |")
         lines.append("")
 
-    predictions = (prediction_simulation or {}).get("predictions") or {}
-    if predictions:
-        lines += [
-            "## AI 예측 시뮬레이션 (실험적)",
-            "",
-            "> 과거 시그널·가격 패턴으로 학습한 실험적 머신러닝 모델의 추세 점수 예측입니다. "
-            "위 매수/HOLD/매도 판정(기계적 규칙 기반)과는 별개이며 그 판정을 대체하지 않습니다. "
-            "추세 점수 = log((매수일수+1)/(매도일수+1)); 매도 신호가 매수보다 구조적으로 잦아 "
-            "대부분 음수로 나오는 것이 정상이며, 0이 아니라 그 자산 자신의 과거 평균과 비교해야 "
-            "의미가 있습니다.",
-            "",
-        ]
-        if prediction_commentary:
-            lines += [prediction_commentary, ""]
-        lines += [
-            "| 티커 | 자산 | 카테고리 | 기준일 | 추세 점수(예측) | 과거 평균 점수 | 신뢰도 |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
-        ]
-        for ticker, meta in data_fetcher.ASSET_CLASS_TICKERS.items():
-            if ticker not in predictions:
-                continue
-            pred = predictions[ticker]
-            lines.append(
-                f"| {ticker} | {_md_cell(meta.get('label', ''))} | {_md_cell(meta.get('category', ''))} "
-                f"| {pred.get('as_of_date', '')} | {pred['trend_score']:+.3f} "
-                f"| {pred['historical_avg_score']:+.3f} | {pred['improvement_pct']:.1f}% |"
-            )
-        lines.append("")
-
     if paper_positions:
         lines += [
             "## 모의 투자 현황",
@@ -608,7 +542,7 @@ def _build_copy_summary_bar_html(markdown_text: str) -> str:
     markdown_json = json.dumps(markdown_text).replace("</script", "<\\/script")
     return f"""<div class="copy-summary-bar">
 <button id="copy-summary-btn" onclick="copyReportSummary()">📋 위 내용 Markdown으로 복사</button>
-<span class="copy-caption">제목부터 이 지점 위까지(요약 표·최근 시그널 이력·AI 예측·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
+<span class="copy-caption">제목부터 이 지점 위까지(시장 참고 지표·요약 표·최근 시그널 이력·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
 </div>
 <script>
 const REPORT_MARKDOWN = {markdown_json};
@@ -631,9 +565,9 @@ def build_daily_report_html(
     results: dict,
     paper_positions: list[dict] | None = None,
     signal_history: dict | None = None,
-    prediction_simulation: dict | None = None,
     sp500_signals: list[dict] | None = None,
     backtest_summary: dict | None = None,
+    macro_snapshot: dict | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
 
@@ -659,10 +593,9 @@ def build_daily_report_html(
     imports report_builder — a back-import would be circular), so the caller always loads and
     passes this in, same as paper_positions.
 
-    `prediction_simulation` (prediction_model/generate_predictions.py's output, loaded
-    read-only from Drive's _prediction_simulation.json by the caller) is likewise optional,
-    omitted if not given/empty (see _build_prediction_simulation_html) — an experimental ML
-    model trained/refreshed entirely outside this cron path (see prediction_model_spec.md).
+    `macro_snapshot` (data_fetcher.fetch_macro_snapshot's output, fetched fresh live by the
+    caller -- VIX + US 10Y treasury yield) is likewise optional, omitted if not given/empty
+    (see _build_macro_snapshot_html) -- pure market-context display, not a signal.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
@@ -673,26 +606,16 @@ def build_daily_report_html(
         except Exception:
             pass
 
-    prediction_commentary = ""
-    if not config.SKIP_LLM_AND_NEWS and prediction_simulation and prediction_simulation.get("predictions"):
-        try:
-            prediction_commentary = openrouter_briefing.generate_prediction_commentary(
-                prediction_simulation["predictions"]
-            )
-        except Exception:
-            pass
-
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
+    macro_snapshot_html = _build_macro_snapshot_html(macro_snapshot)
     table_html = _build_summary_table_html(results)
     sp500_signals_html = _build_sp500_signals_html(sp500_signals)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
-    prediction_html = _build_prediction_simulation_html(prediction_simulation, prediction_commentary)
     backtest_summary_html = _build_backtest_summary_html(backtest_summary)
 
     report_markdown = _build_report_markdown(
-        date, overview, results, signal_history, prediction_simulation, prediction_commentary,
-        paper_positions, sp500_signals,
+        date, overview, results, signal_history, paper_positions, sp500_signals, macro_snapshot,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
@@ -713,11 +636,11 @@ def build_daily_report_html(
 <h1>톰 바소 추세추종 일일 리포트 ({date})</h1>
 <div class="chart-legend-key">BB=볼린저밴드<br>DC20/DC100=Donchian채널(20일/100일)<br>손절선=트레일링 스탑(고점−3×ATR)<br>양운(붉은색)/음운(파란색)=일목균형표 구름(선행스팬A·B)</div>
 </div>
+{macro_snapshot_html}
 {overview_html}
 {table_html}
 {sp500_signals_html}
 {history_html}
-{prediction_html}
 {paper_html}
 {copy_summary_html}
 <h2>오늘의 매수/매도 시그널</h2>
