@@ -56,6 +56,12 @@ NEWS_MAX_ITEMS_PER_TICKER = int(os.environ.get("NEWS_MAX_ITEMS_PER_TICKER", "5")
 EXA_API_KEY = os.environ.get("EXA_API_KEY")
 EXA_NEWS_LOOKBACK_DAYS = int(os.environ.get("EXA_NEWS_LOOKBACK_DAYS", "7"))
 
+# General (non-ticker) macro/geopolitical news digest for the daily report's "오늘 챙겨야 할
+# 해외 이슈" section (recommendation_engine.get_macro_issues_briefing) — a short lookback since
+# this is meant to surface what's fresh today, not a week-old backlog like per-ticker news.
+MACRO_NEWS_MAX_ITEMS = int(os.environ.get("MACRO_NEWS_MAX_ITEMS", "8"))
+MACRO_NEWS_LOOKBACK_DAYS = int(os.environ.get("MACRO_NEWS_LOOKBACK_DAYS", "2"))
+
 # OpenRouter LLM ("Mr. Serenity" briefing)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_MODEL_NAME = os.environ.get("OPENROUTER_MODEL_NAME", "nvidia/nemotron-3-ultra-550b-a55b:free")

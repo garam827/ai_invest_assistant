@@ -426,6 +426,39 @@ def _resolve_report_date(results: dict) -> str:
     return datetime.date.today().isoformat()
 
 
+def get_macro_issues_briefing(drive_db: DriveDB) -> dict | None:
+    """Fetch general (non-ticker-specific) macro/geopolitical news via Exa and ask the LLM to
+    distill it into a short list of issues a trend-following investor should check today
+    (report_builder's "오늘 챙겨야 할 해외 이슈" section). Distinct from the per-ticker news
+    used elsewhere in this module -- not tied to any single ticker's buy/sell signal, so it's
+    fetched once here under news_fetcher.MACRO_NEWS_ARCHIVE_KEY's pseudo-ticker key (reusing
+    get_cached_news/archive_news so a same-day rerun doesn't re-hit Exa).
+
+    Returns None (section omitted by the caller) when config.SKIP_LLM_AND_NEWS is set -- there's
+    no rule-based fallback for this section since a plain news dump isn't the point (see
+    openrouter_briefing.MACRO_ISSUES_SYSTEM_PROMPT) -- or when there's no news / the LLM call
+    fails; the caller wraps this in its own try/except regardless.
+    """
+    if config.SKIP_LLM_AND_NEWS:
+        return None
+
+    news_items = news_fetcher.get_cached_news(drive_db, news_fetcher.MACRO_NEWS_ARCHIVE_KEY)
+    if news_items is None:
+        news_items = news_fetcher.fetch_ticker_news_exa(
+            news_fetcher.MACRO_NEWS_ARCHIVE_KEY,
+            query=news_fetcher.MACRO_NEWS_QUERY,
+            max_items=config.MACRO_NEWS_MAX_ITEMS,
+            lookback_days=config.MACRO_NEWS_LOOKBACK_DAYS,
+        )
+        news_fetcher.archive_news(drive_db, news_fetcher.MACRO_NEWS_ARCHIVE_KEY, news_items)
+
+    if not news_items:
+        return None
+
+    text = openrouter_briefing.generate_macro_issues_briefing(news_items)
+    return {"text": text, "news": news_items}
+
+
 def run_asset_class_recommendations(
     drive_db: DriveDB, tickers: dict | None = None, as_of: str | None = None
 ) -> dict:
@@ -529,14 +562,24 @@ def run_asset_class_recommendations(
         logger.exception("Failed to load backtest summary (report will omit this section)")
         backtest_summary = None
 
-    # VIX + US 10Y treasury yield macro-context snapshot (user request) — fetched fresh live
-    # via yfinance every run, not stored to Drive/run through signal_engine (see
+    # VIX + short/mid/long US Treasury yield macro-context snapshot (user request) — fetched
+    # fresh live via yfinance every run, not stored to Drive/run through signal_engine (see
     # data_fetcher.fetch_macro_snapshot's docstring). A fetch failure just omits the section.
     try:
         macro_snapshot = data_fetcher.fetch_macro_snapshot()
     except Exception:
         logger.exception("Failed to fetch macro snapshot (report will omit this section)")
         macro_snapshot = {}
+
+    # General (non-ticker) 해외 매크로/지정학 이슈 요약 (user request) -- Exa search + LLM
+    # distillation, independent of any single ticker's signal. Skipped on a SKIP_LLM_AND_NEWS
+    # test run (see get_macro_issues_briefing) and omitted on any other failure, same as every
+    # other optional report section above.
+    try:
+        macro_issues = get_macro_issues_briefing(drive_db)
+    except Exception:
+        logger.exception("Failed to generate macro issues briefing (report will omit this section)")
+        macro_issues = None
 
     report_url = None
     if results:
@@ -549,6 +592,7 @@ def run_asset_class_recommendations(
                 sp500_signals=sp500_signals,
                 backtest_summary=backtest_summary,
                 macro_snapshot=macro_snapshot,
+                macro_issues=macro_issues,
             )
             report_builder.save_report(drive_db, report_date, report_html)
             # A test publish now does reach docs/reports/GitHub Pages too (v3.52, under its

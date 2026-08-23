@@ -17,6 +17,16 @@ import config
 NEWS_ARCHIVE_PREFIX = "_news_"
 EXA_SEARCH_URL = "https://api.exa.ai/search"
 
+# Pseudo-ticker key for the general (non-ticker-specific) macro/geopolitical news digest
+# (recommendation_engine.get_macro_issues_briefing) -- reuses the same per-date
+# archive_news/get_cached_news mechanism as per-ticker news under this fixed key instead of
+# a real ticker symbol, so a same-day rerun doesn't re-hit Exa.
+MACRO_NEWS_ARCHIVE_KEY = "_MACRO_ISSUES_"
+MACRO_NEWS_QUERY = (
+    "global macro economy stock market moving news Federal Reserve interest rates "
+    "geopolitical risk"
+)
+
 
 def fetch_ticker_news_exa(
     ticker: str,

@@ -60,6 +60,19 @@ PORTFOLIO_OVERVIEW_SYSTEM_PROMPT = (
 )
 
 
+MACRO_ISSUES_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 오늘 수집된 해외(미국/글로벌) 매크로·지정학 뉴스 기사들이다. 이 중 추세추종 투자자가 "
+    "오늘 반드시 챙겨야 할 이슈를 3~5개 골라 정리하라. 각 이슈는 번호를 매기고, "
+    "(1) 이슈가 무엇인지 한 줄로, (2) 왜 지금 지켜봐야 하는지(연준 통화정책, 금리, 환율, 지정학적 "
+    "긴장, 주요 경제지표 발표 등 자산군 전반에 영향을 줄 수 있는 이유)를 근거 기사 내용에 기반해 "
+    "구체적으로 설명하라 — 기사 제목만 나열하지 말고 실제로 무슨 내용인지 풀어써라. "
+    "이것은 어디까지나 '무엇을 지켜봐야 하는지'에 대한 참고 정리일 뿐이다: 특정 자산의 향후 가격이나 "
+    "방향을 예측·전망하지 말고, 단정적인 표현도 쓰지 마라. 이 요약은 어떤 종목의 매수/HOLD/매도 "
+    "판정도 바꾸지 않는다. 관련성 높은 이슈가 없다면 그 사실만 담백하게 언급하면 된다."
+)
+
+
 def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
     if not news_items:
         return f"[{ticker}] 관련 금일 뉴스 없음."
@@ -166,4 +179,15 @@ def generate_portfolio_overview(results: dict, signal_history: dict | None = Non
 
     prompt = "\n".join(lines) + "\n\n위 오늘의 판정과 최근 시그널 이력을 종합해 오늘 시장 상황을 한 문단으로 요약하라."
     return _call_chat(PORTFOLIO_OVERVIEW_SYSTEM_PROMPT, prompt)
+
+
+def generate_macro_issues_briefing(news_items: list[dict]) -> str:
+    """Distill general (non-ticker-specific) macro/geopolitical news into a short numbered
+    list of issues a trend-following investor should check today (report_builder's "오늘
+    챙겨야 할 해외 이슈" section, fed by recommendation_engine.get_macro_issues_briefing's Exa
+    search). Advisory/context only, same as generate_portfolio_overview — never changes any
+    ticker's mechanical action.
+    """
+    prompt = _format_news_for_prompt("해외 매크로", news_items) + "\n\n위 뉴스를 바탕으로 오늘 챙겨야 할 이슈를 정리하라."
+    return _call_chat(MACRO_ISSUES_SYSTEM_PROMPT, prompt)
 

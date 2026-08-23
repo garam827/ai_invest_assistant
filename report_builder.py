@@ -91,19 +91,16 @@ def _esc(text: str) -> str:
 def _format_macro_item(data: dict) -> tuple[str, str]:
     """Shared value/delta formatting for one macro_snapshot entry -- used by both the HTML
     strip (_build_macro_snapshot_html) and the copy-to-clipboard Markdown mirror
-    (_build_report_markdown) so the two can't drift apart. "yield_pct"/"spread_pct" are both
-    percentage-point values (Treasury yields vs. the High Yield OAS spread) -- yields get 3
-    decimals (matches yfinance's own precision), the spread 2 (matches FRED's own precision);
-    both use "%p" for the delta since a change in either is itself measured in percentage
-    points. "index" (VIX) has no natural unit, so its delta is just a plain number.
+    (_build_report_markdown) so the two can't drift apart. "yield_pct" (Treasury yields) is a
+    percentage-point value at 3 decimals (matches yfinance's own precision), with "%p" for
+    the delta since a change in yield is itself measured in percentage points. "index" (VIX)
+    has no natural unit, so its delta is just a plain number.
     """
     value = data["value"]
     prior = data.get("prior_value")
-    fmt = data.get("format")
-    if fmt in ("yield_pct", "spread_pct"):
-        decimals = 3 if fmt == "yield_pct" else 2
-        value_str = f"{value:.{decimals}f}%"
-        delta_str = f" (전일 대비 {value - prior:+.{decimals}f}%p)" if prior is not None else ""
+    if data.get("format") == "yield_pct":
+        value_str = f"{value:.3f}%"
+        delta_str = f" (전일 대비 {value - prior:+.3f}%p)" if prior is not None else ""
     else:
         value_str = f"{value:.2f}"
         delta_str = f" (전일 대비 {value - prior:+.2f})" if prior is not None else ""
@@ -112,11 +109,10 @@ def _format_macro_item(data: dict) -> tuple[str, str]:
 
 def _build_macro_snapshot_html(macro_snapshot: dict | None) -> str:
     """macro_snapshot: data_fetcher.fetch_macro_snapshot's output (VIX, short/mid/long US
-    Treasury yields, High Yield bond spread -- fetched fresh live by the caller at
-    report-build time; see that function's docstring for why these stay outside the
-    ASSET_CLASS_TICKERS/signal_engine pipeline). Purely informational display, not a signal
-    of any kind. Omitted entirely if empty, same "no section for nothing to show" principle
-    used throughout this file.
+    Treasury yields -- fetched fresh live by the caller at report-build time; see that
+    function's docstring for why these stay outside the ASSET_CLASS_TICKERS/signal_engine
+    pipeline). Purely informational display, not a signal of any kind. Omitted entirely if
+    empty, same "no section for nothing to show" principle used throughout this file.
     """
     if not macro_snapshot:
         return ""
@@ -126,6 +122,22 @@ def _build_macro_snapshot_html(macro_snapshot: dict | None) -> str:
         value_str, delta_str = _format_macro_item(data)
         items.append(f"<span class='macro-item'><b>{_esc(data['label'])}</b> {value_str}{delta_str}</span>")
     return f"<div class='macro-snapshot'>{' &nbsp;·&nbsp; '.join(items)}</div>"
+
+
+def _build_macro_issues_html(macro_issues: dict | None) -> str:
+    """macro_issues: recommendation_engine.get_macro_issues_briefing's output -- an LLM-
+    distilled shortlist of general (non-ticker-specific) 해외 매크로/지정학 issues worth
+    tracking today, drawn from a dedicated Exa news search independent of any single ticker's
+    signal, plus the news items it drew from. Advisory/context only, same as macro_snapshot/
+    overview -- never a signal and never overrides any ticker's mechanical action. Omitted
+    entirely if not given/empty, same "no section for nothing to show" principle used
+    throughout this file.
+    """
+    if not macro_issues or not macro_issues.get("text"):
+        return ""
+    text_html = f"<div class='analysis'>{_esc(macro_issues['text'])}</div>"
+    news_html = _build_news_cards_html(macro_issues.get("news") or [])
+    return f"<h2>오늘 챙겨야 할 해외 이슈</h2>{text_html}{news_html}"
 
 
 def _build_summary_table_html(results: dict) -> str:
@@ -444,6 +456,7 @@ def _build_report_markdown(
     paper_positions: list[dict] | None,
     sp500_signals: list[dict] | None = None,
     macro_snapshot: dict | None = None,
+    macro_issues: dict | None = None,
 ) -> str:
     """Markdown mirror of everything from the page title through the 모의 투자 section
     (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
@@ -461,6 +474,9 @@ def _build_report_markdown(
             value_str, delta_str = _format_macro_item(data)
             macro_parts.append(f"**{data['label']}** {value_str}{delta_str}")
         lines += [" · ".join(macro_parts), ""]
+
+    if macro_issues and macro_issues.get("text"):
+        lines += ["## 오늘 챙겨야 할 해외 이슈", "", macro_issues["text"], ""]
 
     if overview:
         lines += ["## 오늘의 종합 총평", "", overview, ""]
@@ -542,7 +558,7 @@ def _build_copy_summary_bar_html(markdown_text: str) -> str:
     markdown_json = json.dumps(markdown_text).replace("</script", "<\\/script")
     return f"""<div class="copy-summary-bar">
 <button id="copy-summary-btn" onclick="copyReportSummary()">📋 위 내용 Markdown으로 복사</button>
-<span class="copy-caption">제목부터 이 지점 위까지(시장 참고 지표·요약 표·최근 시그널 이력·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
+<span class="copy-caption">제목부터 이 지점 위까지(시장 참고 지표·오늘 챙겨야 할 해외 이슈·요약 표·최근 시그널 이력·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
 </div>
 <script>
 const REPORT_MARKDOWN = {markdown_json};
@@ -568,6 +584,7 @@ def build_daily_report_html(
     sp500_signals: list[dict] | None = None,
     backtest_summary: dict | None = None,
     macro_snapshot: dict | None = None,
+    macro_issues: dict | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
 
@@ -594,8 +611,14 @@ def build_daily_report_html(
     passes this in, same as paper_positions.
 
     `macro_snapshot` (data_fetcher.fetch_macro_snapshot's output, fetched fresh live by the
-    caller -- VIX + US 10Y treasury yield) is likewise optional, omitted if not given/empty
+    caller -- VIX + short/mid/long US Treasury yields) is likewise optional, omitted if not given/empty
     (see _build_macro_snapshot_html) -- pure market-context display, not a signal.
+
+    `macro_issues` (recommendation_engine.get_macro_issues_briefing's output, `{"text": ...,
+    "news": [...]}`) is likewise optional, omitted if not given/empty (see
+    _build_macro_issues_html) -- an LLM-distilled shortlist of general (non-ticker) 해외
+    매크로/지정학 issues worth tracking today, from a dedicated Exa search independent of any
+    single ticker's signal. Advisory/context only, never a signal.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
@@ -608,6 +631,7 @@ def build_daily_report_html(
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     macro_snapshot_html = _build_macro_snapshot_html(macro_snapshot)
+    macro_issues_html = _build_macro_issues_html(macro_issues)
     table_html = _build_summary_table_html(results)
     sp500_signals_html = _build_sp500_signals_html(sp500_signals)
     paper_html = _build_paper_trading_html(paper_positions or [])
@@ -616,6 +640,7 @@ def build_daily_report_html(
 
     report_markdown = _build_report_markdown(
         date, overview, results, signal_history, paper_positions, sp500_signals, macro_snapshot,
+        macro_issues,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
@@ -637,6 +662,7 @@ def build_daily_report_html(
 <div class="chart-legend-key">BB=볼린저밴드<br>DC20/DC100=Donchian채널(20일/100일)<br>손절선=트레일링 스탑(고점−3×ATR)<br>양운(붉은색)/음운(파란색)=일목균형표 구름(선행스팬A·B)</div>
 </div>
 {macro_snapshot_html}
+{macro_issues_html}
 {overview_html}
 {table_html}
 {sp500_signals_html}
