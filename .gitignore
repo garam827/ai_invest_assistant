@@ -21,3 +21,8 @@ prediction_model/models/
 # triple_barrier_backtest_spec.md's local-only cache (yfinance history + CSV summary) —
 # regenerable, not versioned, never uploaded to Drive.
 backtest_cache/
+
+# lab/ is a personal notebook sandbox (investment_assistant_spec.md's "부속" section) —
+# only the .py helper scripts are tracked, notebook outputs are not.
+lab/*.ipynb
+lab/.ipynb_checkpoints/
