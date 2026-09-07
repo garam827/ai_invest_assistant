@@ -6,11 +6,8 @@
 
 ## 버전 이력 (Changelog)
 
-**현재 버전: v3.62 (2026-09-07)**. 구현·테스트 결과와 운영 배포 상태는 아래 [기능 3] 및 [기능 5]의 v3.62 기록을 기준으로 구분한다.
-
 | 버전 | 날짜 | 변경 내용 |
 | --- | --- | --- |
-| v3.62 | 2026-09-07 | **OpenAI 키 별칭 지원·응답 검증 보완, 실제 LLM 테스트 리포트 발행, Actions 운영 상태 점검.** `config.py`에서 OpenAI 선택 시 기존 `.env`의 `OPENAI_KEY`도 지원한다. `llm_briefing.py`는 빈 `choices`, 거절 응답, 빈 본문을 명시적 오류로 처리한다. 로컬 수정 코드로 뉴스·LLM을 활성화한 `2026-09-04_test` 리포트를 생성하고 Drive 저장 및 GitHub Pages 게시·내용 일치까지 검증했다. Actions 예약 실행은 활성 상태이며 최근 지연과 한국 시간 일·월요일 비실행을 확인했다. 원격 코드는 아직 OpenRouter이고 OpenAI Secret 등록·코드 배포는 미완료다. 전체 내용은 [investment_assistant_spec_v3.62.md](spec_archive/investment_assistant_spec_v3.62.md) 참고 |
 | v1.0 | (최초 작성) | 최초 확정안. LLM 엔진: GCP Vertex AI (Gemini 1.5 Pro). 전체 내용은 [investment_assistant_spec_v1.md](spec_archive/investment_assistant_spec_v1.md) 참고 |
 | v2.0 | 2026-07-18 | **LLM 엔진을 GCP Vertex AI(Gemini)에서 OpenRouter로 변경** (비용 절감 목적). 기본 모델: `nvidia/nemotron-3-nano-30b-a3b:free`. 이에 따라 인증 방식(서비스 계정 → API 키)과 관련 섹션(1.1, 1.2, 기능3) 갱신. 전체 내용은 [investment_assistant_spec_v2.md](spec_archive/investment_assistant_spec_v2.md) 참고 |
 | v2.1 | 2026-07-18 | **구글 드라이브 인증 방식을 서비스 계정 키 → OAuth 사용자 인증으로 변경.** 조직 정책(`iam.disableServiceAccountKeyCreation`)이 서비스 계정 키 발급 자체를 차단하는 GCP 프로젝트여서, 서비스 계정 키 대신 OAuth 클라이언트(데스크톱 앱)로 사용자 본인 계정에 동의를 받는 방식으로 전환. 설정 절차는 [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md) 참고. 전체 내용은 [investment_assistant_spec_v2.1.md](spec_archive/investment_assistant_spec_v2.1.md) 참고 |
@@ -166,9 +163,6 @@
     $$\text{매수 수량} = \frac{\text{사용자 설정 총 자산} \times \text{리스크 비율(기본 1%)}}{\text{손절 폭 }(3 \times \text{ATR})}$$
 
 ### [기능 3] 뉴스 스크래핑 및 '평온함(Serenity)' LLM 분석
-
-- **OpenAI 키 연결 및 응답 검증 (v3.62)**: `config.py`는 `.env`를 읽고, `LLM_PROVIDER=openai`일 때 `LLM_API_KEY` → `OPENAI_API_KEY` → `OPENAI_KEY` 순으로 첫 비어 있지 않은 키를 사용한다. `OPENAI_KEY`는 기존 로컬 `.env`의 변수명을 지원하기 위한 별칭이며 OpenRouter 선택 시에는 적용하지 않는다. 키 값은 코드·로그·명세에 기록하지 않는다. 기존 `requests` 기반 Chat Completions 호출과 기본 모델 `gpt-5`를 유지한다.
-- **응답 실패 처리 (v3.62)**: `llm_briefing._call_chat`는 키 누락 시 `.env`에서 사용할 변수명을 안내한다. `choices` 누락 또는 빈 배열, `message.refusal`, 문자열이 아니거나 공백뿐인 `message.content`를 명시적 오류로 처리한다. 예외는 기존 호출부의 규칙 기반 해설 대체 또는 선택적 섹션 생략 경로로 전달된다. 키 로딩·요청 URL/인증 헤더·정상 응답·빈 응답·거절 응답을 모의 호출로 검증했고, 실제 OpenAI 분석 검증 결과는 [기능 5]의 v3.62 기록에 남긴다.
 - **뉴스 수집 (Exa API)**: 분석 대상 종목/자산의 최근 뉴스를 **Exa 검색 API**(`https://api.exa.ai/search`, `news_fetcher.fetch_ticker_news_exa`)로 수집한다. 쿼리는 기본 `"{티커} stock news"`, `category: "news"`로 뉴스 사이트에 한정, 기본 최근 7일(`config.EXA_NEWS_LOOKBACK_DAYS`)로 검색하고 `contents.summary`로 요약도 함께 받는다. 응답의 `author`가 없으면 기사 URL 도메인을 발행처로 대체한다. 인증은 `x-api-key` 헤더에 `EXA_API_KEY`. (이전에는 yfinance 내장 뉴스 피드를 썼으나 v2.7에서 Exa로 전환, v2.8에서 옛 `news_fetcher.fetch_ticker_news`/`fetch_news_for_tickers`를 코드에서 완전히 삭제했다.)
   - **자산군 프록시는 매크로 지향 쿼리로 대체 (v3.3)**: `ASSET_CLASS_TICKERS`의 각 항목에 `news_query`(영문) 필드가 있으면 `recommendation_engine`이 티커 대신 이 쿼리로 검색한다. `"GLD stock news"`처럼 ETF 티커 그대로 검색하면 "GLD 몇 % 하락"류의 단순 가격/시세 기사만 나오고 그 등락을 설명하는 매크로 뉴스는 거의 안 나오기 때문 — `"gold price outlook macro drivers analysis"`처럼 프록시가 추종하는 실물 자산 이름 + 매크로 키워드로 바꾸면 금리·중앙은행 수요·지정학 리스크 등 실제로 추세 판단에 쓸 만한 기사가 나온다(로컬 비교 테스트로 확인). S&P 500 개별 종목처럼 `news_query`가 없는 티커는 그대로 `"{티커} stock news"`를 쓴다 — 티커 자체가 회사이므로 문제가 없다.
 - **LLM 프롬프트 가이드 (OpenAI 호환 `/chat/completions` 연동)**:
@@ -214,18 +208,6 @@
 - **평온한 어시스턴트 (Chat)**: 사용자가 "오늘 AAPL의 추적 손절가는 얼마야?", "오늘 포지션 사이징 리스크를 2%로 올리면 어떻게 해야 해?"라고 질문하면 가상 DB의 파르케 데이터를 읽어 계산 후 답변하는 LLM 에이전트 창.
 
 ### [기능 5] 자동화 인프라 (GitHub Actions) & 텔레그램 알림
-
-#### v3.62 운영 점검 및 테스트 발행 기록 (2026-09-07)
-
-- **로컬 구현과 운영 배포 상태**: OpenAI 연결 변경은 로컬에서 구현·검증됐다. 2026-09-07 점검 당시 원격 `master`의 `collect.yml`/`recommend.yml` 및 LLM 코드는 여전히 OpenRouter 설정이며, GitHub Secrets에는 `OPENROUTER_API_KEY`/`OPENROUTER_MODEL_NAME`만 있고 `LLM_API_KEY`는 없다. 이번에 원격에 게시한 것은 테스트 HTML이며 코드 배포가 아니다. 아래 v3.61의 LLM 환경변수 설명은 로컬 변경 후의 구성이고, 원격 운영 반영 완료를 의미하지 않는다.
-- **OpenAI 자동 실행 전 필요한 반영**: LLM 모듈 개명과 관련 호출부·`config.py`·워크플로 변경을 함께 기본 브랜치 `master`에 반영하고, 로컬 OpenAI 키를 GitHub Actions의 `LLM_API_KEY` Secret에 등록한다. `LLM_PROVIDER`/`LLM_MODEL_NAME`은 저장소 Variables로 지정할 수 있으며 미설정 시 로컬 구현의 기본값은 `openai`/`gpt-5`다. `.env`는 Actions에 자동 전달되지 않는다. 반영 후 `gh workflow run recommend.yml -f is_test=true -f skip_llm_and_news=false`로 원격 코드와 Secrets 조합도 검증해야 한다. 이 운영 반영은 이번 문서 갱신 시점에 미완료다.
-- **실제 OpenAI 테스트 발행**: 2026-09-07 로컬에서 `IS_TEST_REPORT=true`, `SKIP_LLM_AND_NEWS=false`로 실행했다. SPY의 최신 거래일에 맞춰 파일명은 `2026-09-04_test`가 됐다. 대표 자산군 12종(IEF 매도, 나머지 11종 HOLD)을 처리했고 IEF 뉴스 5건에 대한 GPT 해설, 해외 이슈 요약, 자산군 총평을 확인했다. S&P 500 시그널 계산을 포함한 실행 로그에 오류가 없었으며, Drive의 `_recommendations_2026-09-04_test.json`과 `_report_2026-09-04_test.html` 저장을 확인했다. Drive HTML·로컬 HTML 일치, 공개 페이지 HTTP 200 및 파일 해시 일치를 검증했다. 이 로컬 테스트에서는 실행 프로세스 내 Telegram 발송을 비활성화했으므로 알림 발송 검증은 포함하지 않는다. 테스트 모드의 정적 웹 데이터·누적 시그널 이력 갱신 생략 정책을 유지했다.
-  - [테스트 리포트](https://garam827.github.io/ai_invest_assistant/reports/2026-09-04_test.html), [게시 커밋](https://github.com/garam827/ai_invest_assistant/commit/5e8548bf8c001b635ec445e67294e5b57830ce59).
-- **예약 실행 진단**: 워크플로는 `active`이며 예약 실행 중단은 확인되지 않았다. `57 21 * * 1-5`는 UTC 월~금 21:57, KST 화~토 06:57의 수집 시작 예정 시각이며 알림 도착 보장 시각이 아니다. KST 9월 6일(일)·7일(월) 아침은 예약 대상이 아니다. 최근 수집은 KST 9월 3일 08:36:26, 4일 08:33:45, 5일 08:26:11에 시작해 모두 성공했다(예정 대비 약 99분·97분·89분 지연). 최근 실행은 기록 생성 후 수초 내 작업을 시작했으므로 예약 트리거 발생 단계의 지연으로 보이나, GitHub 내부 원인까지 로그로 확정할 수는 없다. GitHub는 부하에 따른 예약 지연·누락 가능성을 공식적으로 안내한다. [최근 수집 실행](https://github.com/garam827/ai_invest_assistant/actions/runs/33929491728), [GitHub 공식 설명](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows).
-- **워크플로 성공과 LLM 성공을 구분**: 최근 원격 추천 실행은 성공했지만 해외 이슈 요약에서 `OpenRouter response missing 'choices': Upstream error from Nvidia: Service temporarily overloaded` 오류가 발생해 해당 섹션을 생략했다. 이는 스케줄 미실행과 별개이며, 선택적 분석 실패를 허용하는 기존 예외 처리 때문에 전체 실행은 성공으로 표시된다. 검증 시 실행 상태뿐 아니라 오류 로그와 HTML의 LLM 섹션도 확인한다. [해당 추천 실행](https://github.com/garam827/ai_invest_assistant/actions/runs/33931060564).
-- **자동화 범위**: 데이터 수집 → 대표 자산군 뉴스·LLM 분석 및 S&P 500 기계적 시그널 → 리포트·정적 웹 데이터·알림이 일일 파이프라인이다. React 빌드는 웹 코드 변경 시 실행하며, Streamlit은 별도 서버에서 실행한다. `prediction_model/`의 학습·예측 생성과 `backtest.py` 전체 백테스트는 기존 규칙 16·18에 따라 로컬/수동 실행 전용으로 유지한다.
-
-#### 기존 자동화 구성
 원래 계획이던 GCP Cloud Run + Cloud Scheduler는 결제 계정 연결 이슈로 보류되었고, 카드 등록 없이 무료로 쓸 수 있는 **GitHub Actions**로 v2.8에서 실제 무인 자동화를 완성했다. 대표 자산군 12종(`ASSET_CLASS_TICKERS`)에 한해 매일 자동으로 매수/HOLD/매도 판정과 텔레그램 알림까지 수행하며, S&P 500 개별 종목 503개는 데이터 수집만 자동화하고 추천/알림은 Streamlit에서 사용자가 직접 조회한다 (LLM/뉴스 API 사용량을 대표 자산군으로 한정해 비용·rate limit을 관리).
 
 - **워크플로 2개, `workflow_run`으로 연쇄**:

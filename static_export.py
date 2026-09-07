@@ -1,5 +1,5 @@
 """Static JSON export for the read-only React site (web/, published via GitHub Pages from
-docs/data/). The React site never calls Drive/Exa/OpenRouter itself -- every value it shows
+docs/data/). The React site never calls Drive/Exa/LLM itself -- every value it shows
 was already computed by the daily cron (recommendation_engine.run_asset_class_recommendations),
 this module just serializes it to JSON.
 
@@ -20,7 +20,7 @@ import pandas as pd
 import chart_builder
 import config
 import data_fetcher
-import openrouter_briefing
+import llm_briefing
 import report_builder
 import signal_engine
 from drive_db import DriveDB
@@ -78,7 +78,7 @@ def export_signals_json(results: dict, sp500_signals: list[dict], signal_history
     overview = None
     if not config.SKIP_LLM_AND_NEWS:
         try:
-            overview = openrouter_briefing.generate_portfolio_overview(results, signal_history)
+            overview = llm_briefing.generate_portfolio_overview(results, signal_history)
         except Exception:
             logger.exception("Failed to generate portfolio overview for static export")
 

@@ -18,7 +18,7 @@ import os
 import chart_builder
 import config
 import data_fetcher
-import openrouter_briefing
+import llm_briefing
 import signal_engine
 
 REPORT_FILENAME_PREFIX = "_report_"
@@ -209,7 +209,7 @@ def _build_sp500_signals_html(sp500_signals: list[dict] | None) -> str:
     """sp500_signals: recommendation_engine.get_sp500_signal_summary's output -- mechanical-
     only 매수/매도 calls (signal_engine.get_mechanical_action) across every active S&P 500
     ticker, deliberately WITHOUT news/LLM narrative (that stays scoped to the 12
-    ASSET_CLASS_TICKERS to keep Exa/OpenRouter usage bounded, per CLAUDE.md). Only 매수/매도
+    ASSET_CLASS_TICKERS to keep Exa/LLM usage bounded, per CLAUDE.md). Only 매수/매도
     tickers are included (HOLD is most days for most tickers and isn't listed individually).
     Omitted entirely if empty, same "no section for nothing to show" principle used
     throughout this file.
@@ -591,7 +591,7 @@ def build_daily_report_html(
     `sp500_signals` (recommendation_engine.get_sp500_signal_summary's output, computed
     fresh every run) is likewise optional, omitted if empty (see _build_sp500_signals_html)
     — mechanical-only 매수/매도 calls across the S&P 500, deliberately without news/LLM
-    narrative (kept to the 12 ASSET_CLASS_TICKERS to bound Exa/OpenRouter usage).
+    narrative (kept to the 12 ASSET_CLASS_TICKERS to bound Exa/LLM usage).
 
     `backtest_summary` (backtest.py's `python backtest.py full-universe` output, loaded
     read-only from Drive's _backtest_summary.json by the caller) is likewise optional,
@@ -625,7 +625,7 @@ def build_daily_report_html(
     overview = ""
     if not config.SKIP_LLM_AND_NEWS:
         try:
-            overview = openrouter_briefing.generate_portfolio_overview(results, signal_history)
+            overview = llm_briefing.generate_portfolio_overview(results, signal_history)
         except Exception:
             pass
 

@@ -200,7 +200,7 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
     st.subheader("Mr. Serenity의 매매 추천")
     try:
         # 차트(추세) 렌더링과 뉴스/LLM 분석 호출을 항상 분리 — "조회"는 차트만 그리고,
-        # 이 버튼을 눌러야만 Exa/OpenRouter를 호출한다(배포 모드와 무관하게 동일하게 적용,
+        # 이 버튼을 눌러야만 Exa/LLM을 호출한다(배포 모드와 무관하게 동일하게 적용,
         # 이전에는 config.STREAMLIT_ENABLE_LLM=false일 때만 분리되어 있었음). 티커별
         # st.session_state 키로 게이팅해 종목을 바꾸면 자동으로 다시 잠긴다.
         trigger_key = f"{key_prefix}_news_triggered_{ticker}"

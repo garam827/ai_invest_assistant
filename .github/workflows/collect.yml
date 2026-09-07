@@ -25,8 +25,6 @@ jobs:
       GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
       GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
       DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENROUTER_MODEL_NAME: ${{ secrets.OPENROUTER_MODEL_NAME }}
       EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
     steps:
       - uses: actions/checkout@v4

@@ -2,7 +2,7 @@
 
 The 매수/HOLD/매도 action is always decided mechanically (signal_engine.get_mechanical_action,
 no network call) — the LLM/Exa news call only runs on a 매수/매도 day, to add a narrative
-explanation, and is skipped entirely on HOLD days (the common case) to keep OpenRouter/Exa
+explanation, and is skipped entirely on HOLD days (the common case) to keep LLM/Exa
 usage low and immune to rate limits.
 
 Streamlit-independent so the exact same logic can run from app.py's chart tabs (cached,
@@ -25,7 +25,7 @@ import pandas as pd
 import config
 import data_fetcher
 import news_fetcher
-import openrouter_briefing
+import llm_briefing
 import paper_trading
 import report_builder
 import signal_engine
@@ -235,14 +235,14 @@ def get_recommendation_for_ticker(
     with the mechanical one, but never overrides it.
 
     `use_llm=False` (e.g. app.py's public-deployment mode, config.STREAMLIT_ENABLE_LLM) still
-    collects news but skips the OpenRouter call entirely, going straight to the rule-based
+    collects news but skips the LLM call entirely, going straight to the rule-based
     explanation — distinct from config.SKIP_LLM_AND_NEWS below, which skips news too.
 
     `as_of` (YYYY-MM-DD, inclusive): compute the recommendation as of this trading day instead
     of the ticker's true latest stored bar -- for backfilling a historical report whose real
     run was lost or mislabeled (see _resolve_report_date). Bypasses _is_data_fresh (a
     wall-clock check that doesn't apply to an intentionally historical snapshot) and always
-    goes straight to the rule-based explanation, skipping Exa/OpenRouter entirely -- Exa's
+    goes straight to the rule-based explanation, skipping Exa/LLM entirely -- Exa's
     search is inherently "recent news relative to now," so calling it for a past `as_of` date
     would attach today's news to a historical signal, which would be actively misleading
     rather than merely incomplete.
@@ -282,7 +282,7 @@ def get_recommendation_for_ticker(
 
     news: list[dict] = []
     if as_of is not None or config.SKIP_LLM_AND_NEWS:
-        logger.info("%s: as_of backfill or SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/OpenRouter", ticker)
+        logger.info("%s: as_of backfill or SKIP_LLM_AND_NEWS set, using rule-based explanation without calling Exa/LLM", ticker)
         text = _build_rule_based_explanation(
             ticker, action, summary, news, reason="disabled", ichimoku_confluence=ichimoku_confluence
         )
@@ -324,7 +324,7 @@ def get_recommendation_for_ticker(
         }
 
     try:
-        reco = openrouter_briefing.generate_recommendation(
+        reco = llm_briefing.generate_recommendation(
             ticker, news, summary, ichimoku_confluence=ichimoku_confluence
         )
         if reco["action"] != action:
@@ -352,7 +352,7 @@ def get_recommendation_for_ticker(
 def get_sp500_signal_summary(drive_db: DriveDB, as_of: str | None = None) -> list[dict]:
     """Mechanical-only 매수/매도 pass over every active S&P 500 ticker (user request) — NOT
     news/LLM-enriched like get_recommendation_for_ticker's ASSET_CLASS_TICKERS flow, which
-    stays 12-ticker-only specifically to keep Exa/OpenRouter usage bounded (see CLAUDE.md).
+    stays 12-ticker-only specifically to keep Exa/LLM usage bounded (see CLAUDE.md).
     This only calls signal_engine.get_mechanical_action on each ticker's already-collected
     Drive OHLCV (collect.yml refreshes the whole active universe daily) — no new external
     API calls, so running it across 500+ tickers costs nothing but Drive reads.
@@ -436,7 +436,7 @@ def get_macro_issues_briefing(drive_db: DriveDB) -> dict | None:
 
     Returns None (section omitted by the caller) when config.SKIP_LLM_AND_NEWS is set -- there's
     no rule-based fallback for this section since a plain news dump isn't the point (see
-    openrouter_briefing.MACRO_ISSUES_SYSTEM_PROMPT) -- or when there's no news / the LLM call
+    llm_briefing.MACRO_ISSUES_SYSTEM_PROMPT) -- or when there's no news / the LLM call
     fails; the caller wraps this in its own try/except regardless.
     """
     if config.SKIP_LLM_AND_NEWS:
@@ -455,7 +455,7 @@ def get_macro_issues_briefing(drive_db: DriveDB) -> dict | None:
     if not news_items:
         return None
 
-    text = openrouter_briefing.generate_macro_issues_briefing(news_items)
+    text = llm_briefing.generate_macro_issues_briefing(news_items)
     return {"text": text, "news": news_items}
 
 

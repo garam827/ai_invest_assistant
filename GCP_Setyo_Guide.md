@@ -80,7 +80,7 @@ Streamlit의 기본 포트인 8501을 외부 네트워크에 개방합니다.
 
 ```
 gcloud secrets create drive-folder-id --data-file=<(printf '%s' "<DRIVE_FOLDER_ID 값>")
-gcloud secrets create openrouter-api-key --data-file=<(printf '%s' "<OPENROUTER_API_KEY 값>")
+gcloud secrets create llm-api-key --data-file=<(printf '%s' "<LLM_API_KEY 값 — OpenAI API 키>")
 gcloud secrets create exa-api-key --data-file=<(printf '%s' "<EXA_API_KEY 값>")
 gcloud secrets create google-oauth-client-secret-json --data-file=client_secret.json
 gcloud secrets create google-oauth-token-json --data-file=token.json
@@ -190,7 +190,7 @@ cd ai_invest_assistant
 echo "Fetching application secrets..."
 cat > .env <<ENVEOF
 DRIVE_FOLDER_ID=$(gcloud secrets versions access latest --secret=drive-folder-id)
-OPENROUTER_API_KEY=$(gcloud secrets versions access latest --secret=openrouter-api-key)
+LLM_API_KEY=$(gcloud secrets versions access latest --secret=llm-api-key)
 EXA_API_KEY=$(gcloud secrets versions access latest --secret=exa-api-key)
 STREAMLIT_ENABLE_LLM=false
 ENVEOF

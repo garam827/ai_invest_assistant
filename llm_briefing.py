@@ -1,4 +1,4 @@
-"""'Mr. Serenity' LLM analysis via OpenRouter (default model: nvidia/nemotron-3-ultra-550b-a55b:free).
+"""'Mr. Serenity' LLM analysis via an OpenAI-compatible chat API (default: OpenAI, see config.LLM_PROVIDER).
 
 Two things this module does:
 - generate_briefing: judges whether a signal ticker's news reinforces its long-term trend or is noise.
@@ -14,7 +14,7 @@ import requests
 import config
 import data_fetcher
 
-OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 SYSTEM_PROMPT = (
     "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
@@ -86,17 +86,21 @@ def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
 
 
 def _call_chat(system_prompt: str, user_prompt: str) -> str:
-    if not config.OPENROUTER_API_KEY:
-        raise ValueError("OPENROUTER_API_KEY is not set")
+    if not config.LLM_API_KEY:
+        raise ValueError(
+            f"No LLM API key set for LLM_PROVIDER={config.LLM_PROVIDER} "
+            "(set LLM_API_KEY, OPENAI_API_KEY / OPENAI_KEY for OpenAI, "
+            "or OPENROUTER_API_KEY for OpenRouter in .env)"
+        )
 
     response = requests.post(
-        OPENROUTER_CHAT_URL,
+        config.LLM_BASE_URL.rstrip("/") + CHAT_COMPLETIONS_PATH,
         headers={
-            "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+            "Authorization": f"Bearer {config.LLM_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": config.OPENROUTER_MODEL_NAME,
+            "model": config.LLM_MODEL_NAME,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -107,18 +111,25 @@ def _call_chat(system_prompt: str, user_prompt: str) -> str:
     response.raise_for_status()
     data = response.json()
 
-    if "choices" not in data:
-        # Free-tier models occasionally return a 200 with no choices (rate limit, provider
-        # hiccup, etc.) instead of a proper error status. Surface the actual reason instead
-        # of letting a bare KeyError obscure it.
+    if not data.get("choices"):
+        # OpenRouter's free-tier models occasionally return a 200 with no choices (rate limit,
+        # provider hiccup, etc.) instead of a proper error status; OpenAI normally uses real
+        # HTTP error codes, but the guard is kept for whichever provider is configured.
+        # Surface the actual reason instead of letting a bare KeyError obscure it.
         error_message = (data.get("error") or {}).get("message", str(data)[:300])
-        raise RuntimeError(f"OpenRouter response missing 'choices': {error_message}")
+        raise RuntimeError(f"{config.LLM_PROVIDER} response missing 'choices': {error_message}")
 
-    return data["choices"][0]["message"]["content"].strip()
+    message = data["choices"][0].get("message") or {}
+    if message.get("refusal"):
+        raise RuntimeError(f"{config.LLM_PROVIDER} declined to generate a briefing")
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError(f"{config.LLM_PROVIDER} returned an empty briefing")
+    return content.strip()
 
 
 def generate_briefing(ticker: str, news_items: list[dict]) -> str:
-    """Ask the configured OpenRouter model (as Mr. Serenity) whether today's news is trend-reinforcing or noise."""
+    """Ask the configured LLM (as Mr. Serenity) whether today's news is trend-reinforcing or noise."""
     prompt = _format_news_for_prompt(ticker, news_items)
     if not news_items:
         prompt += " 뉴스가 없다는 사실 자체를 근거로 평온한 브리핑을 작성하라."

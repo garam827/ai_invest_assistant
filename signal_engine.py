@@ -181,7 +181,7 @@ def get_mechanical_action(summary: dict) -> str:
 def get_ichimoku_confluence(summary: dict, action: str) -> dict | None:
     """Advisory-only: does today's Ichimoku cloud position agree with the mechanical
     매수/매도 action? Purely informational context for the recommendation narrative
-    (recommendation_engine._build_rule_based_explanation / openrouter_briefing.generate_recommendation)
+    (recommendation_engine._build_rule_based_explanation / llm_briefing.generate_recommendation)
     — never used to change `action` itself or the position-sizing calculation.
 
     Returns None if the cloud isn't computable yet (insufficient history, ~78 bars needed).

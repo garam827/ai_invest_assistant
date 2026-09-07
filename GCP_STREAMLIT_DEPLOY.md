@@ -22,7 +22,7 @@
 - [ ] 결제 계정 연결
 - [ ] [gcloud CLI](https://cloud.google.com/sdk/docs/install) 설치 및 로그인 (`gcloud auth login`)
 - [ ] 로컬에 이미 인증 완료된 `token.json` (아래 3단계 참고 — 없으면 로컬에서 먼저 만들어야 함)
-- [ ] `OPENROUTER_API_KEY`, `EXA_API_KEY`, `DRIVE_FOLDER_ID` 등 기존 `.env` 값들
+- [ ] `LLM_API_KEY`(OpenAI API 키), `EXA_API_KEY`, `DRIVE_FOLDER_ID` 등 기존 `.env` 값들
 
 ---
 
@@ -91,7 +91,7 @@ python -c "from drive_db import DriveDB; print(DriveDB().list_tickers())"
 gcloud secrets create drive-folder-id --data-file=<(printf '%s' "<DRIVE_FOLDER_ID 값>")
 gcloud secrets create google-oauth-client-secret-json --data-file=client_secret.json
 gcloud secrets create google-oauth-token-json --data-file=token.json
-gcloud secrets create openrouter-api-key --data-file=<(printf '%s' "<OPENROUTER_API_KEY 값>")
+gcloud secrets create llm-api-key --data-file=<(printf '%s' "<LLM_API_KEY 값 — OpenAI API 키>")
 gcloud secrets create exa-api-key --data-file=<(printf '%s' "<EXA_API_KEY 값>")
 ```
 
@@ -101,7 +101,7 @@ gcloud secrets create exa-api-key --data-file=<(printf '%s' "<EXA_API_KEY 값>")
 
 이 앱은 공개 배포를 염두에 두고 이미 `config.STREAMLIT_ENABLE_LLM` 플래그가 준비되어 있습니다(`investment_assistant_spec.md` v3.11 참고) — 배포 시 `false`로 설정하면:
 - 뉴스(Exa)는 수집하되 버튼을 눌러야만 실행되고,
-- LLM(OpenRouter) 서술 분석은 생략되어 규칙 기반 설명으로 대체됩니다.
+- LLM 서술 분석은 생략되어 규칙 기반 설명으로 대체됩니다.
 
 방문자 여러 명이 동시에 API 비용을 유발하지 않도록, **배포본에서는 이 값을 `false`로 설정하는 것을 강력히 권장**합니다.
 
@@ -117,7 +117,7 @@ gcloud run deploy invest-assistant-ui \
   --set-secrets="DRIVE_FOLDER_ID=drive-folder-id:latest,\
 GOOGLE_OAUTH_CLIENT_SECRET_JSON=google-oauth-client-secret-json:latest,\
 GOOGLE_OAUTH_TOKEN_JSON=google-oauth-token-json:latest,\
-OPENROUTER_API_KEY=openrouter-api-key:latest,\
+LLM_API_KEY=llm-api-key:latest,\
 EXA_API_KEY=exa-api-key:latest"
 ```
 
@@ -138,7 +138,7 @@ EXA_API_KEY=exa-api-key:latest"
 ## 비용 관리 팁
 
 - `--min-instances=0` + `--max-instances=2`로 상한을 걸어두면 일반적인 개인 사용 트래픽에서는 무료 티어 안에서 충분히 운영 가능
-- Cloud Run 자체 비용과는 별개로 **OpenRouter/Exa API는 여전히 진짜 비용**입니다 — `STREAMLIT_ENABLE_LLM=false` + 뉴스 버튼 트리거 + `news_fetcher.get_cached_news` 읽기 캐시(v3.11)가 이미 이 비용을 최소화하도록 설계되어 있습니다.
+- Cloud Run 자체 비용과는 별개로 **LLM(OpenAI)/Exa API는 여전히 진짜 비용**입니다 — `STREAMLIT_ENABLE_LLM=false` + 뉴스 버튼 트리거 + `news_fetcher.get_cached_news` 읽기 캐시(v3.11)가 이미 이 비용을 최소화하도록 설계되어 있습니다.
 - GCP 콘솔의 "예산 및 알림"에서 월 예산 알림을 걸어두는 것을 권장합니다.
 
 ## 트러블슈팅

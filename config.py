@@ -62,9 +62,39 @@ EXA_NEWS_LOOKBACK_DAYS = int(os.environ.get("EXA_NEWS_LOOKBACK_DAYS", "7"))
 MACRO_NEWS_MAX_ITEMS = int(os.environ.get("MACRO_NEWS_MAX_ITEMS", "8"))
 MACRO_NEWS_LOOKBACK_DAYS = int(os.environ.get("MACRO_NEWS_LOOKBACK_DAYS", "2"))
 
-# OpenRouter LLM ("Mr. Serenity" briefing)
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-OPENROUTER_MODEL_NAME = os.environ.get("OPENROUTER_MODEL_NAME", "nvidia/nemotron-3-ultra-550b-a55b:free")
+# LLM provider for the "Mr. Serenity" analysis (llm_briefing.py). OpenAI and OpenRouter both
+# speak the same OpenAI-compatible /chat/completions contract (identical request body and
+# `choices[0].message.content` response shape), so switching between them only changes the base
+# URL, the API key and the model name — never any calling code. Set LLM_PROVIDER=openrouter to
+# fall back to the previous free-tier setup, or point LLM_BASE_URL at any other compatible host.
+# `or "openai"` rather than a get() default: GitHub Actions sets an unset `vars.LLM_PROVIDER`
+# to an empty string, which a plain default wouldn't catch. Same reason for the `or`s below.
+LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or "openai").lower()
+
+_LLM_PROVIDER_DEFAULTS = {
+    # provider: (base URL, default model, conventional API-key env var name)
+    "openai": ("https://api.openai.com/v1", "gpt-5", "OPENAI_API_KEY"),
+    "openrouter": ("https://openrouter.ai/api/v1", "nvidia/nemotron-3-ultra-550b-a55b:free", "OPENROUTER_API_KEY"),
+}
+if LLM_PROVIDER not in _LLM_PROVIDER_DEFAULTS:
+    # Fail loudly at import rather than silently defaulting — a typo here would otherwise send
+    # every LLM call to the wrong provider with the wrong key.
+    raise ValueError(
+        f"Unsupported LLM_PROVIDER={LLM_PROVIDER!r} (expected one of {sorted(_LLM_PROVIDER_DEFAULTS)})"
+    )
+
+_LLM_BASE_URL_DEFAULT, _LLM_MODEL_DEFAULT, _LLM_KEY_ENV = _LLM_PROVIDER_DEFAULTS[LLM_PROVIDER]
+
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL") or _LLM_BASE_URL_DEFAULT
+# Model IDs move faster than this file does — override via .env / Actions Secrets rather than
+# editing the default above when a newer flagship model ships.
+LLM_MODEL_NAME = os.environ.get("LLM_MODEL_NAME") or _LLM_MODEL_DEFAULT
+# Accept either the generic LLM_API_KEY or the provider's own conventional variable name, so an
+# existing OPENROUTER_API_KEY keeps working unchanged when LLM_PROVIDER=openrouter.
+LLM_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get(_LLM_KEY_ENV)
+if LLM_PROVIDER == "openai" and not LLM_API_KEY:
+    # Support the name used by the project's existing local .env.
+    LLM_API_KEY = os.environ.get("OPENAI_KEY")
 
 # Recommendation freshness gate — skip generating a 매수/HOLD/매도 call from stale data
 # (e.g. a per-ticker fetch silently failed during collection). 4 days covers a normal
@@ -77,7 +107,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 # Manual-test escape hatch (recommend.yml's workflow_dispatch input): skip the Exa news +
-# OpenRouter LLM calls entirely and go straight to the rule-based explanation. For verifying
+# LLM calls entirely and go straight to the rule-based explanation. For verifying
 # the pipeline/report/Telegram plumbing without burning API quota on calls whose output isn't
 # actually being checked. Never set for the real workflow_run-triggered (scheduled) path.
 SKIP_LLM_AND_NEWS = os.environ.get("SKIP_LLM_AND_NEWS", "false").lower() == "true"
@@ -95,7 +125,7 @@ IS_TEST_REPORT = os.environ.get("IS_TEST_REPORT", "false").lower() == "true"
 REPORT_BASE_URL = os.environ.get("REPORT_BASE_URL", "https://garam827.github.io/ai_invest_assistant/reports")
 
 # Streamlit UI-only toggle for public deployment (e.g. Streamlit Community Cloud): when false,
-# app.py's chart tabs skip the OpenRouter LLM call (news collection still happens, gated behind
+# app.py's chart tabs skip the LLM call (news collection still happens, gated behind
 # an explicit button — see app.py) and fall back to a rule-based explanation instead. Defaults
 # to true so local dev is unaffected; set to "false" via the deployed app's secrets/env. This is
 # independent of SKIP_LLM_AND_NEWS above (that skips news too, and is cron-only).

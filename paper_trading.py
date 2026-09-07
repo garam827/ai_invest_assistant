@@ -2,7 +2,7 @@
 
 Positions are recorded by the user (Streamlit UI only — the cron pipeline is read-only,
 see the spec's "핵심 설계 결정") and their P&L is computed from data already collected
-daily by data_fetcher — no new external API calls (yfinance/Exa/OpenRouter) here.
+daily by data_fetcher — no new external API calls (yfinance/Exa/LLM) here.
 
 Persisted to Drive as one JSON file (PAPER_TRADES_FILENAME), same DriveDB.load_json/
 save_json mechanism already used for _universe.json/_recommendations_{date}.json.
