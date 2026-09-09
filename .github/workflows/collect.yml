@@ -35,5 +35,8 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      - name: Verify data-quality regression checks
+        run: python -m unittest discover -s tests -v
+
       - name: Sync S&P 500 + asset-class OHLCV data
         run: python data_fetcher.py update

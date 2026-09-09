@@ -489,6 +489,11 @@ def run_asset_class_recommendations(
         except Exception:
             logger.exception("Failed to generate recommendation for %s", ticker)
 
+    missing = set(tickers) - set(results)
+    if missing:
+        raise RuntimeError(
+            f"Incomplete recommendations; refusing to publish: {', '.join(sorted(missing))}"
+        )
     date = as_of if as_of is not None else _resolve_report_date(results)
     # A manual/sample publish (config.IS_TEST_REPORT) gets its own filename via a "_test"
     # suffix — applied to both the recommendations JSON and the report below — so re-running

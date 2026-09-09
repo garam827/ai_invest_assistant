@@ -21,6 +21,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 import config
+from data_quality import validate_ohlcv
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ class DriveDB:
 
     def save_ticker(self, ticker: str, df: pd.DataFrame) -> None:
         """Overwrite (or create) a ticker's Parquet file with the given DataFrame."""
+        validate_ohlcv(df)
         buffer = io.BytesIO()
         df.to_parquet(buffer, index=False)
         self._upload(self._filename(ticker), buffer.getvalue(), PARQUET_MIMETYPE)

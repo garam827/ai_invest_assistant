@@ -10,6 +10,7 @@ from __future__ import annotations
 import pandas as pd
 
 import config
+from data_quality import validate_ohlcv
 
 
 def calculate_atr(df: pd.DataFrame, window: int = config.ATR_WINDOW) -> pd.Series:
@@ -104,6 +105,7 @@ def calculate_position_size(
 
 def compute_signals(df: pd.DataFrame) -> pd.DataFrame:
     """Add ATR/Donchian/breakout/trailing-stop/volume-surge columns to an OHLCV DataFrame."""
+    validate_ohlcv(df)
     signals = df.sort_values("Date").reset_index(drop=True).copy()
 
     signals["ATR"] = calculate_atr(signals)

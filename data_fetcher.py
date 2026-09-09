@@ -23,6 +23,7 @@ import yfinance as yf
 
 import config
 from drive_db import DriveDB
+from data_quality import validate_ohlcv
 
 logger = logging.getLogger(__name__)
 
@@ -192,13 +193,23 @@ def fetch_ohlcv(
     run without accidentally also pulling a day that hadn't closed when that run should have
     happened) -- see run_daily_update/run_asset_class_update/run_full_collection's own `end` param.
     """
-    history = yf.Ticker(ticker).history(period=period, start=start, end=end, interval="1d")
-    if history.empty:
+    for attempt in range(3):
+        history = yf.Ticker(ticker).history(
+            period=period, start=start, end=end, interval="1d", auto_adjust=True
+        )
+        if history.empty:
+            return history
+        history = history.reset_index()[OHLCV_COLUMNS]
+        history["Date"] = pd.to_datetime(history["Date"]).dt.tz_localize(None)
+        try:
+            validate_ohlcv(history)
+        except ValueError:
+            logger.warning("%s: invalid OHLCV response (attempt %d/3)", ticker, attempt + 1)
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+            continue
         return history
-
-    history = history.reset_index()[OHLCV_COLUMNS]
-    history["Date"] = pd.to_datetime(history["Date"]).dt.tz_localize(None)
-    return history
 
 
 def run_initial_ingestion(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> None:
@@ -276,7 +287,9 @@ def _update_one_ticker(drive_db: DriveDB, ticker: str, end: str | None = None) -
         return
 
     merged = drive_db.upsert_ticker(ticker, new_df)
-    logger.info("Updated %s (%d total rows)", ticker, len(merged))
+    latest = merged.iloc[-1]
+    logger.info("Updated %s (%d total rows; latest=%s close=%s)",
+                ticker, len(merged), latest["Date"], latest["Close"])
 
 
 def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> None:
@@ -297,12 +310,16 @@ def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: s
 def run_asset_class_update(drive_db: DriveDB, end: str | None = None) -> None:
     """Backfill (first run) or update (subsequent runs) the representative asset-class ETF proxies."""
     logger.info("Starting asset-class update for %d tickers", len(ASSET_CLASS_TICKERS))
+    failed = []
     for ticker in ASSET_CLASS_TICKERS:
         try:
             _update_one_ticker(drive_db, ticker, end=end)
         except Exception:
             logger.exception("Failed to update asset-class ticker %s", ticker)
+            failed.append(ticker)
         time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
+    if failed:
+        raise RuntimeError(f"Asset-class collection incomplete: {', '.join(failed)}")
 
 
 def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
