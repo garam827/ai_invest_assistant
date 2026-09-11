@@ -9,5 +9,15 @@ token.json
 *.log
 .git/
 .cache_ggshield
-spec_archive/
+documentation/specs/archive/
 docs/
+
+artifacts/
+*.egg-info/
+build/
+dist/
+.refactor*
+
+apps/web/node_modules/
+apps/web/dist/
+research/

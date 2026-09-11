@@ -45,13 +45,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - run: pip install -r requirements.txt
+      - run: pip install -e .
 
       - name: Verify data-quality regression checks
         run: python -m unittest discover -s tests -v
 
       - name: Generate 매수/HOLD/매도 recommendations (representative asset classes only)
-        run: python recommendation_engine.py
+        run: python -m invest_assistant.pipelines.recommend
 
       # report_builder.py writes the day's combined report to docs/reports/{date}.html, and
       # static_export.py writes the React site's data (docs/data/*.json, overwritten daily,

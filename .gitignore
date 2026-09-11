@@ -10,19 +10,25 @@ token.json
 *.log
 .cache_ggshield
 
-# prediction_model/ regenerable data artifacts (see prediction_model_spec.md) — only the
+# research/prediction_model/ regenerable data artifacts (see prediction_model_spec.md) — only the
 # .py scripts and the spec doc are tracked, same "local cache, not versioned" principle as
 # triple_barrier_backtest_spec.md's backtest_cache/.
-prediction_model/ohlcv_cache/
-prediction_model/*.csv
-prediction_model/*.npz
-prediction_model/models/
+research/prediction_model/ohlcv_cache/
+research/prediction_model/*.csv
+research/prediction_model/*.npz
+research/prediction_model/models/
 
 # triple_barrier_backtest_spec.md's local-only cache (yfinance history + CSV summary) —
 # regenerable, not versioned, never uploaded to Drive.
 backtest_cache/
 
-# lab/ is a personal notebook sandbox (investment_assistant_spec.md's "부속" section) —
+# research/notebooks/ is a personal notebook sandbox (investment_assistant_spec.md's "부속" section) —
 # only the .py helper scripts are tracked, notebook outputs are not.
-lab/*.ipynb
-lab/.ipynb_checkpoints/
+research/notebooks/*.ipynb
+research/notebooks/.ipynb_checkpoints/
+
+artifacts/
+*.egg-info/
+build/
+dist/
+.refactor*

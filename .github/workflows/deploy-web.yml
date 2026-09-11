@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - "web/**"
+      - "apps/web/**"
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab
 
@@ -18,14 +18,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: apps/web/package-lock.json
 
-      - working-directory: web
+      - working-directory: apps/web
         run: npm ci
 
-      # vite.config.ts sets build.outDir to ../docs (repo root's docs/) with emptyOutDir:
+      # vite.config.ts sets build.outDir to ../../docs (repo root's docs/) with emptyOutDir:
       # false (so a build never touches docs/reports/ or docs/data/, which recommend.yml
       # owns -- see static_export.py). But that also means Vite's own content-hashed
       # bundles (docs/assets/index-<hash>.js/css) never get cleaned between builds, since
@@ -34,7 +34,7 @@ jobs:
       - name: Clean previous build output
         run: rm -rf docs/assets
 
-      - working-directory: web
+      - working-directory: apps/web
         run: npm run build
 
       # recommend.yml's daily cron also commits into docs/ (reports + data), so rebase onto

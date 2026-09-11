@@ -4,11 +4,12 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pandas as pd
 
-import data_fetcher
-from data_quality import validate_ohlcv
-from drive_db import DriveDB
-import recommendation_engine
-import signal_engine
+from invest_assistant.analysis import signals as signal_engine
+from invest_assistant.data import market as data_fetcher
+from invest_assistant.data.quality import validate_ohlcv
+from invest_assistant.pipelines import collect as collection_pipeline
+from invest_assistant.pipelines import recommend as recommendation_engine
+from invest_assistant.storage.drive import DriveDB
 
 
 def prices():
@@ -77,11 +78,11 @@ class DataQualityTests(unittest.TestCase):
         db.save_json.assert_not_called()
 
     def test_collection_failure_blocks_downstream_workflow(self):
-        with patch.object(data_fetcher, "ASSET_CLASS_TICKERS", {"SPY": {}, "QQQ": {}}), \
-             patch.object(data_fetcher, "_update_one_ticker", side_effect=[ValueError("invalid"), None]) as update, \
-             patch.object(data_fetcher.time, "sleep"), self.assertLogs(data_fetcher.logger):
+        with patch.object(collection_pipeline, "ASSET_CLASS_TICKERS", {"SPY": {}, "QQQ": {}}), \
+             patch.object(collection_pipeline, "_update_one_ticker", side_effect=[ValueError("invalid"), None]) as update, \
+             patch.object(collection_pipeline.time, "sleep"), self.assertLogs(collection_pipeline.logger):
             with self.assertRaisesRegex(RuntimeError, "SPY"):
-                data_fetcher.run_asset_class_update(Mock())
+                collection_pipeline.run_asset_class_update(Mock())
             self.assertEqual(update.call_count, 2)
 
 
