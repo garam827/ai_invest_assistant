@@ -1,3 +1,5 @@
+> Deployment review (2026-09-12): see [STREAMLIT_DEPLOYMENT_REVIEW.md](STREAMLIT_DEPLOYMENT_REVIEW.md) for current readiness, OAuth token write permissions, access control, and hosting options. The instructions below include historical deployment notes.
+
 맨땅에서 시작해 GCP 인프라 프로비저닝, IAM 및 OAuth 권한 제어, 깃허브 보안 토큰 우회, 그리고 Docker 컨테이너라이징까지의 모든 **트라이얼 앤 에러(Trial & Error)** 과정을 하나의 완벽한 엔지니어링 가이드로 통합 정리했습니다.
 
 이 문서는 향후 FastAPI, Airflow, Kubernetes로 인프라를 확장할 때도 핵심 뼈대가 될 것입니다.

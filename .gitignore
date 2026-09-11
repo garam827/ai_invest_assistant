@@ -31,4 +31,3 @@ artifacts/
 *.egg-info/
 build/
 dist/
-.refactor*

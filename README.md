@@ -62,3 +62,4 @@ Docker 실행은 저장소 루트에서 `docker compose -f infrastructure/docker
 - [구조와 이전 경로 대응표](documentation/architecture/layout.md)
 - [Google Drive 인증](documentation/guides/GOOGLE_DRIVE_SETUP.md)
 - [Telegram 설정](documentation/guides/TELEGRAM_SETUP.md)
+- [Streamlit 서버 배포 검토](documentation/guides/STREAMLIT_DEPLOYMENT_REVIEW.md)

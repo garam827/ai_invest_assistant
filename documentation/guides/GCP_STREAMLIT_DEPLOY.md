@@ -1,3 +1,5 @@
+> Deployment review (2026-09-12): see [STREAMLIT_DEPLOYMENT_REVIEW.md](STREAMLIT_DEPLOYMENT_REVIEW.md) for current readiness, OAuth token write permissions, access control, and hosting options. The instructions below include historical deployment notes.
+
 # Streamlit 앱을 GCP(Cloud Run)에 배포하는 가이드 (미검증 대안책)
 
 > **실제 채택된 배포 경로는 이 문서가 아니라 [GCP_Setyo_Guide.md](GCP_Setyo_Guide.md)입니다** (Compute Engine VM + Docker Compose, 실전 트라이얼 앤 에러로 검증됨). 이 문서(Cloud Run)는 아직 실제로 배포해보지 않은 미검증 대안 설계로 참고용으로만 남겨둔다 — 향후 트래픽이 늘어 서버리스/스케일-투-제로가 실제로 필요해지면 다시 꺼내 쓸 것.

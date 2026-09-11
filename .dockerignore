@@ -16,7 +16,6 @@ artifacts/
 *.egg-info/
 build/
 dist/
-.refactor*
 
 apps/web/node_modules/
 apps/web/dist/

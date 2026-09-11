@@ -128,6 +128,8 @@ Docker 관련 파일은 `infrastructure/`, 설치 스크립트는 `scripts/`에 
 
 Streamlit 외부 서버의 실제 신규 배포는 이번 리팩토링에 포함하지 않는다.
 배포 방식·Drive 인증 갱신·접근 권한·리소스·비용은 후속 서버 배포 검토에서 정한다.
+검토 결과는 [Streamlit 서버 배포 검토](../guides/STREAMLIT_DEPLOYMENT_REVIEW.md)에 정리했다.
+`test.yml`은 소스 변경 시 Ubuntu/Python 3.11에서 설치형 패키지와 회귀 테스트를 검증한다.
 
 ## 모의투자·백테스트·연구
 
