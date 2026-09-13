@@ -36,7 +36,7 @@ def load_ticker_data(ticker: str) -> pd.DataFrame | None:
     return get_drive_db().load_ticker(ticker)
 
 @st.cache_data(ttl=300 if config.STREAMLIT_PUBLIC_MODE else 86400, max_entries=64, show_spinner="분석 불러오는 중...")
-def get_recommendation(ticker: str, latest_date: str, use_llm: bool) -> dict:
+def get_recommendation(ticker: str, latest_date: str, use_llm: bool) -> dict | None:
     """Cached by (ticker, latest bar date, use_llm) — LLM/news calls only happen once per new
     trading day per ticker, not on every rerun/tab-switch (st.tabs bodies all execute every
     rerun). Delegates to recommendation_engine so the cron job (recommendation_engine.py) and

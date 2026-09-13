@@ -14,7 +14,10 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
     """Shared chart+metrics+LLM-recommendation renderer, used by both the asset-class and S&P tabs."""
     raw_df = load_ticker_data(ticker)
     if raw_df is None or raw_df.empty:
-        st.warning(f"{ticker} 데이터가 없습니다. '데이터 적재' 탭에서 먼저 수집해주세요.")
+        if config.STREAMLIT_PUBLIC_MODE:
+            st.warning(f"{ticker}의 공개 데이터가 아직 없습니다.")
+        else:
+            st.warning(f"{ticker} 데이터가 없습니다. '데이터 적재' 탭에서 먼저 수집해주세요.")
         return
 
     # Donchian(100일)/ATR은 룩백이 필요하므로 전체 히스토리로 지표를 계산한 뒤, 화면 표시 구간만 잘라낸다.

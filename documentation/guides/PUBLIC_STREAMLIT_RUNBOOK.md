@@ -25,6 +25,11 @@ python scripts/smoke_container.py
 스모크 테스트는 별도 Compose 프로젝트 `ai-invest-smoke`, localhost 18501을 사용하고 테스트 후 제거한다.
 GitHub의 Python regression tests 워크플로도 동일한 컨테이너 검증을 실행한다.
 
+2026-09-13 검증: 로컬 Python 24개 테스트 및 Ruff F/I 검사 통과.
+로컬 Docker 엔진이 응답하지 않아 컨테이너는 GitHub Linux 러너에서 검증했다.
+이미지 빌드, health, 비루트·무인증 실행, 공개 UI 및 재시작 검증이 [CI에서 통과](https://github.com/garam827/ai_invest_assistant/actions/runs/34760951691)했다.
+실제 GCP·Tunnel·부하 검증은 아직 수행하지 않았다.
+
 ## GCP 사전 확인
 
 프로젝트 ID, VM 이름·존·머신 타입, 디스크 종류·용량, 외부 IP 및 NAT 사용 여부, 무료 혜택 상태를 확인한다.

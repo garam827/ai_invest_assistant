@@ -9,6 +9,7 @@ from apps.streamlit.constants import (
     PERIOD_OPTIONS,
 )
 from apps.streamlit.services import get_universe
+from invest_assistant import config
 
 
 def render():
@@ -20,7 +21,10 @@ def render():
     description_map = universe["descriptions"]
 
     if not all_tickers:
-        st.warning("Drive에 저장된 종목이 없습니다. '데이터 적재' 탭에서 먼저 데이터를 적재해주세요.")
+        if config.STREAMLIT_PUBLIC_MODE:
+            st.warning("공개된 종목 데이터가 아직 없습니다.")
+        else:
+            st.warning("Drive에 저장된 종목이 없습니다. '데이터 적재' 탭에서 먼저 데이터를 적재해주세요.")
     else:
         if "selected_sp500_ticker" not in st.session_state:
             st.session_state.selected_sp500_ticker = None

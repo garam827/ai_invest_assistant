@@ -1,4 +1,4 @@
-"""Streamlit dashboard: one page with six tabs."""
+"""Streamlit dashboard: four public tabs or six private administration tabs."""
 import streamlit as st
 
 from apps.streamlit.services import get_drive_db
