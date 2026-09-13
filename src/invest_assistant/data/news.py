@@ -35,6 +35,8 @@ def fetch_ticker_news_exa(
     lookback_days: int = config.EXA_NEWS_LOOKBACK_DAYS,
 ) -> list[dict]:
     """Fetch recent news for a ticker via the Exa search API (neural search, scoped to news sites)."""
+    from invest_assistant.storage.runtime import require_private_operation
+    require_private_operation()
     if not config.EXA_API_KEY:
         raise ValueError("EXA_API_KEY is not set")
 

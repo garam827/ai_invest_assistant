@@ -52,8 +52,17 @@ npm run build
 | `docs/` | GitHub Pages 공개 산출물 |
 | `artifacts/` | Git 제외 캐시·학습 데이터·모델·로그 |
 
-Docker 실행은 저장소 루트에서 `docker compose -f infrastructure/docker-compose.yml up -d --build`입니다.
-이 명령은 서버를 시작하므로 인증과 접근 정책을 정한 배포 환경에서 사용합니다.
+공개 조회용 Docker 로컬 실행:
+
+```powershell
+docker compose -f infrastructure/docker-compose.yml -f infrastructure/docker-compose.local.yml up -d --build
+```
+
+`http://127.0.0.1:8501`에서 확인합니다. 공개 앱은 기존 docs 스냅샷만 읽으며 인증키가 필요 없습니다.
+기본 Compose 단독 실행은 호스트 포트를 열지 않습니다. 실제 GCP 배포·도메인 연결은 아직 수행하지 않았습니다.
+[공개 운영 절차](documentation/guides/PUBLIC_STREAMLIT_RUNBOOK.md)를 참고하세요.
+
+로컬 비공개 앱의 새 Drive 인증은 `python scripts/authorize_drive.py`로 명시적으로 실행합니다.
 
 설치형 배포의 데이터·인증 기준 디렉토리는 `INVEST_ASSISTANT_HOME`으로 지정합니다.
 소스 체크아웃에서는 기본값이 저장소 루트입니다. 비밀 파일은 Git에 포함하지 않습니다.
@@ -63,3 +72,4 @@ Docker 실행은 저장소 루트에서 `docker compose -f infrastructure/docker
 - [Google Drive 인증](documentation/guides/GOOGLE_DRIVE_SETUP.md)
 - [Telegram 설정](documentation/guides/TELEGRAM_SETUP.md)
 - [Streamlit 서버 배포 검토](documentation/guides/STREAMLIT_DEPLOYMENT_REVIEW.md)
+- [Streamlit GCP·Cloudflare 운영 명세](documentation/specs/streamlit_gcp_cloudflare_spec.md)

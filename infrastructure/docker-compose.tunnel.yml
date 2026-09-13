@@ -1,0 +1,24 @@
+# Optional later step: no Access login policy for the requested public site.
+# Configure the named tunnel hostname origin as http://streamlit-app:8501.
+services:
+  cloudflared:
+    image: ${CLOUDFLARED_IMAGE:?Set CLOUDFLARED_IMAGE to a verified cloudflare/cloudflared tag or digest}
+    command: [tunnel, --no-autoupdate, run, --token-file, /run/secrets/tunnel_token]
+    secrets:
+      - tunnel_token
+    depends_on:
+      streamlit-app:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+secrets:
+  tunnel_token:
+    file: ${CLOUDFLARED_TOKEN_FILE:?Set CLOUDFLARED_TOKEN_FILE to an existing token file outside the repository}

@@ -86,6 +86,8 @@ def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
 
 
 def _call_chat(system_prompt: str, user_prompt: str) -> str:
+    from invest_assistant.storage.runtime import require_private_operation
+    require_private_operation()
     if not config.LLM_API_KEY:
         raise ValueError(
             f"No LLM API key set for LLM_PROVIDER={config.LLM_PROVIDER} "

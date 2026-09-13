@@ -1,7 +1,14 @@
 # Streamlit 서버 배포 검토
 
+> 아래는 2026-09-12 당시의 검토 기록이다. 이후 전체 공개·월 예산 0원·도메인 연결 연기로 요구사항이 변경되었다.
+> 현재 구현은 [운영 명세 v1.1](../specs/streamlit_gcp_cloudflare_spec.md) 및 [실행 절차](PUBLIC_STREAMLIT_RUNBOOK.md)를 따른다.
+
 검토일: 2026-09-12. 대상: v3.64 리팩토링 이후 코드.
 이 문서는 배포 설계 검토이며 서버 생성, 비밀값 등록, 외부 공개는 실행하지 않았다.
+
+후속 선택 구조는 GCP VM + Cloudflare DNS·Access·Tunnel이며,
+당시 구현 기준은 [운영 명세 v1.0](../specs/archive/streamlit_gcp_cloudflare_spec_v1.0.md)에 보존한다.
+아래 선택지 비교는 해당 구조를 정하기 전의 검토 기록이다.
 
 ## 권장 방향
 

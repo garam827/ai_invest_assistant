@@ -1,0 +1,5 @@
+# Local validation only; accessible from this machine, not the LAN/Internet.
+services:
+  streamlit-app:
+    ports:
+      - "127.0.0.1:${STREAMLIT_LOCAL_PORT:-8501}:8501"

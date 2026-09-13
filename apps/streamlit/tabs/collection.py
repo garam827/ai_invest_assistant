@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 import logging
+from threading import Lock
 
 import streamlit as st
 
 from apps.streamlit.components.log_viewer import _StreamlitLogHandler
 from apps.streamlit.services import get_universe, load_ticker_data
+from invest_assistant import config
 from invest_assistant import universe as instrument_universe
 from invest_assistant.pipelines import collect as collection_pipeline
 from invest_assistant.storage.drive import DriveDB
 
+_collection_lock = Lock()
+
 
 def render():
+    if config.STREAMLIT_PUBLIC_MODE:
+        st.info("공개 서비스에서는 데이터 조회만 제공됩니다.")
+        return
     st.header("전체 데이터 적재")
     st.write(
         "S&P 500 종목 유니버스를 최신 상태로 동기화(편입/편출 반영)하고, "
@@ -19,6 +26,9 @@ def render():
     )
 
     if st.button("전체 데이터 적재", type="primary"):
+        if not _collection_lock.acquire(blocking=False):
+            st.warning("데이터 적재가 이미 실행 중입니다.")
+            return
         log_placeholder = st.empty()
         handler = _StreamlitLogHandler(log_placeholder)
         handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
@@ -46,3 +56,4 @@ def render():
         finally:
             root_logger.removeHandler(handler)
             root_logger.setLevel(previous_level)
+            _collection_lock.release()

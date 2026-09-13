@@ -13,6 +13,8 @@ import uuid
 
 import pandas as pd
 
+from invest_assistant.storage.runtime import require_private_operation, serialized
+
 PAPER_TRADES_FILENAME = "_paper_trades.json"
 
 
@@ -22,6 +24,7 @@ def load_positions(drive_db) -> list[dict]:
 
 
 def save_positions(drive_db, positions: list[dict]) -> None:
+    require_private_operation()
     drive_db.save_json(PAPER_TRADES_FILENAME, {"positions": positions})
 
 
@@ -43,6 +46,7 @@ def preview_price(drive_db, ticker: str, date: str) -> float | None:
     return _price_on_or_before(drive_db.load_ticker(ticker), date)
 
 
+@serialized
 def open_position(
     drive_db,
     ticker: str,
@@ -52,6 +56,7 @@ def open_position(
 ) -> dict:
     """Record a new open position. entry_price=None auto-fills from entry_date's actual
     close (drive_db.load_ticker) — "종가에 매수했다"는 스펙 요구사항의 기본 동작."""
+    require_private_operation()
     if entry_price is None:
         entry_price = _price_on_or_before(drive_db.load_ticker(ticker), entry_date)
         if entry_price is None:
@@ -75,6 +80,7 @@ def open_position(
     return position
 
 
+@serialized
 def close_position(
     drive_db,
     position_id: str,
@@ -83,6 +89,7 @@ def close_position(
 ) -> dict:
     """Close an existing open position. exit_date=None -> today. exit_price=None -> the
     ticker's latest stored close."""
+    require_private_operation()
     positions = load_positions(drive_db)
     for position in positions:
         if position["id"] == position_id:

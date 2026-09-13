@@ -9,10 +9,14 @@ COPY . .
 RUN pip install --no-cache-dir --no-deps .
 ENV INVEST_ASSISTANT_HOME=/app
 
-# Default port is Streamlit's own convention (8501) to match the primary deployment path
-# (GCP Compute Engine + Docker Compose, see GCP_Setyo_Guide.md — firewall rule opens 8501).
-# $PORT still overrides it if this image is ever run on Cloud Run instead (see
-# GCP_STREAMLIT_DEPLOY.md), which injects its own port (commonly 8080).
-ENV STREAMLIT_SERVER_HEADLESS=true
+ENV STREAMLIT_PUBLIC_MODE=true \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp \
+    XDG_CACHE_HOME=/tmp/cache
+RUN useradd --uid 10001 --no-create-home streamlit
+USER 10001:10001
 EXPOSE 8501
-CMD streamlit run apps/streamlit/app.py --server.port=${PORT:-8501} --server.address=0.0.0.0
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('PORT','8501')+'/_stcore/health',timeout=3).read()"
+CMD ["python", "-m", "invest_assistant.deployment"]

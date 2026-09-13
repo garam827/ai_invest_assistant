@@ -31,3 +31,5 @@ artifacts/
 *.egg-info/
 build/
 dist/
+secrets/
+.streamlit/secrets.toml

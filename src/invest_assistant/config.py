@@ -7,7 +7,12 @@ from dotenv import load_dotenv
 
 from invest_assistant.paths import PROJECT_ROOT
 
-load_dotenv(PROJECT_ROOT / ".env")
+if os.environ.get("STREAMLIT_PUBLIC_MODE", "false").lower() != "true":
+    load_dotenv(PROJECT_ROOT / ".env")
+
+# Public servers serve only the already-published snapshot, without credentials/APIs.
+STREAMLIT_PUBLIC_MODE = os.environ.get("STREAMLIT_PUBLIC_MODE", "false").lower() == "true"
+GOOGLE_OAUTH_ALLOW_INTERACTIVE = os.environ.get("GOOGLE_OAUTH_ALLOW_INTERACTIVE", "false").lower() == "true"
 
 # Google Drive "virtual DB" (OAuth user credentials — org policy blocks service account keys)
 GOOGLE_OAUTH_CLIENT_SECRET_PATH = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET_PATH", str(PROJECT_ROOT / "client_secret.json"))
@@ -21,9 +26,9 @@ def _bootstrap_secret_file(path: str, env_var_name: str) -> None:
     was provided via env var, write it out once so drive_db.py's file-path-based auth just works.
     """
     content = os.environ.get(env_var_name)
-    if content and not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+    if content and not STREAMLIT_PUBLIC_MODE and not os.path.exists(path):
+        from invest_assistant.storage.runtime import atomic_write_private
+        atomic_write_private(path, content)
 
 
 _bootstrap_secret_file(GOOGLE_OAUTH_CLIENT_SECRET_PATH, "GOOGLE_OAUTH_CLIENT_SECRET_JSON")

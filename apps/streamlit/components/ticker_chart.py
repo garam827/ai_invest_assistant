@@ -18,7 +18,13 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
         return
 
     # Donchian(100일)/ATR은 룩백이 필요하므로 전체 히스토리로 지표를 계산한 뒤, 화면 표시 구간만 잘라낸다.
-    signals = signal_engine.compute_signals(raw_df)
+    if config.STREAMLIT_PUBLIC_MODE:
+        # Preserve the indicators computed from full history by the daily publisher.
+        signals = raw_df.copy()
+        for window in (20, 100):
+            signals[f"Breakout_{window}"] = signals["Close"] > signals[f"Donchian_Upper_{window}"]
+    else:
+        signals = signal_engine.compute_signals(raw_df)
     view = chart_builder.slice_to_period(signals, PERIOD_OPTIONS[period_label])
 
     latest = signals.iloc[-1]
@@ -51,7 +57,7 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
         # 이전에는 config.STREAMLIT_ENABLE_LLM=false일 때만 분리되어 있었음). 티커별
         # st.session_state 키로 게이팅해 종목을 바꾸면 자동으로 다시 잠긴다.
         trigger_key = f"{key_prefix}_news_triggered_{ticker}"
-        if not st.session_state.get(trigger_key):
+        if not config.STREAMLIT_PUBLIC_MODE and not st.session_state.get(trigger_key):
             note = "뉴스 수집·분석은 외부 API를 호출하므로 버튼을 눌러야 실행됩니다."
             if not config.STREAMLIT_ENABLE_LLM:
                 note += " (LLM 서술 분석은 이 배포본에서 비활성화되어 있으며, 규칙 기반 설명으로 대체됩니다.)"
@@ -62,8 +68,11 @@ def render_ticker_chart(ticker: str, period_label: str, subtitle: str, key_prefi
 
         reco = get_recommendation(ticker, str(latest["Date"]), config.STREAMLIT_ENABLE_LLM)
         if reco is None:
-            st.info("데이터가 오래되어(신선도 기준 초과) 추천을 생성하지 않았습니다. '데이터 적재' 탭에서 갱신해주세요.")
+            st.info("공개된 분석이 없습니다. 차트의 저장된 시그널을 참고해주세요." if config.STREAMLIT_PUBLIC_MODE
+                    else "데이터가 오래되어 추천을 생성하지 않았습니다. '데이터 적재' 탭에서 갱신해주세요.")
             return
+        if config.STREAMLIT_PUBLIC_MODE:
+            st.caption(f"저장된 분석 기준일: {reco.get('date', '-')}")
         action_color = {"매수": "green", "HOLD": "gray", "매도": "red"}.get(reco["action"], "gray")
         st.markdown(f"#### :{action_color}[추천: {reco['action']}]")
         st.write(reco["text"])

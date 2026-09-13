@@ -2,9 +2,9 @@
 
 Auth is via OAuth user credentials, not a service account key — some GCP orgs enforce
 the iam.disableServiceAccountKeyCreation policy, which blocks service account keys outright.
-First run opens a browser for one-time consent; the resulting refresh token is cached to
-config.GOOGLE_OAUTH_TOKEN_PATH so subsequent runs (including headless/Cloud Run) don't
-need a browser as long as that token file is present.
+Run scripts/authorize_drive.py locally for explicit browser consent. Headless processes
+refresh an existing token and never initiate consent by default. Public deployments
+do not use Drive credentials.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import logging
 import os
 
 import pandas as pd
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -22,6 +23,11 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 from invest_assistant import config
 from invest_assistant.data.quality import validate_ohlcv
+from invest_assistant.storage.runtime import (
+    atomic_write_private,
+    require_private_operation,
+    serialized,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +35,10 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 PARQUET_MIMETYPE = "application/octet-stream"
 
 
+@serialized
 def _load_credentials() -> Credentials:
     """Load cached OAuth credentials, refreshing or running the consent flow as needed."""
+    require_private_operation()
     creds = None
     token_path = config.GOOGLE_OAUTH_TOKEN_PATH
     if os.path.exists(token_path):
@@ -38,14 +46,18 @@ def _load_credentials() -> Credentials:
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                raise RuntimeError("Drive authorization must be renewed on a trusted local machine.") from None
         else:
+            if not config.GOOGLE_OAUTH_ALLOW_INTERACTIVE:
+                raise RuntimeError("Drive token missing or invalid. Run scripts/authorize_drive.py locally first.")
             flow = InstalledAppFlow.from_client_secrets_file(
                 config.GOOGLE_OAUTH_CLIENT_SECRET_PATH, SCOPES
             )
             creds = flow.run_local_server(port=0)
-        with open(token_path, "w") as token_file:
-            token_file.write(creds.to_json())
+        atomic_write_private(token_path, creds.to_json())
 
     return creds
 
@@ -53,7 +65,9 @@ def _load_credentials() -> Credentials:
 class DriveDB:
     """Reads/writes per-ticker OHLCV Parquet files inside one Drive folder."""
 
+    @serialized
     def __init__(self, folder_id: str | None = None):
+        require_private_operation()
         self.folder_id = folder_id or config.DRIVE_FOLDER_ID
         if not self.folder_id:
             raise ValueError("DRIVE_FOLDER_ID is not set (env var or constructor arg)")
@@ -75,6 +89,7 @@ class DriveDB:
         files = response.get("files", [])
         return files[0]["id"] if files else None
 
+    @serialized
     def list_tickers(self) -> list[str]:
         """List all tickers currently stored in the Drive folder."""
         tickers: list[str] = []
@@ -92,6 +107,7 @@ class DriveDB:
                 break
         return tickers
 
+    @serialized
     def _download(self, filename: str) -> bytes | None:
         file_id = self._find_file_id(filename)
         if file_id is None:
@@ -105,7 +121,9 @@ class DriveDB:
             _, done = downloader.next_chunk()
         return buffer.getvalue()
 
+    @serialized
     def _upload(self, filename: str, data: bytes, mimetype: str) -> None:
+        require_private_operation()
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mimetype, resumable=False)
         file_id = self._find_file_id(filename)
         if file_id is None:
@@ -148,6 +166,7 @@ class DriveDB:
         """Overwrite (or create) a plain-text/HTML file."""
         self._upload(filename, text.encode("utf-8"), mimetype)
 
+    @serialized
     def list_filenames(self, prefix: str) -> list[str]:
         """List filenames in the Drive folder starting with `prefix` (e.g. '_report_')."""
         filenames: list[str] = []
@@ -165,6 +184,7 @@ class DriveDB:
                 break
         return sorted(filenames)
 
+    @serialized
     def upsert_ticker(self, ticker: str, new_df: pd.DataFrame) -> pd.DataFrame:
         """Merge new rows into the existing file, drop duplicate dates (keep newest), save, return merged df."""
         existing_df = self.load_ticker(ticker)

@@ -1,18 +1,15 @@
 # 톰 바소 스타일 추세추종 투자 어시스턴트 명세
 
-현재 버전: **v3.66 (2026-09-13)**
+현재 버전: **v3.64 (2026-09-12)**
 
 ## 변경 이력과 아카이브
 
 | 버전 | 날짜 | 변경 |
 | --- | --- | --- |
-| v3.66 | 2026-09-13 | 공개 스냅샷 조회 모드, 비밀값 없는 Docker 배포, 선택적 Tunnel 구성 및 컨테이너 CI 구현. 도메인과 GCP 배포는 월 0원 조건 확인 후 진행. |
-| v3.65 | 2026-09-12 | GCP VM에서 Streamlit을 실행하고 Cloudflare DNS·Access·Tunnel로 접속하는 운영 명세 v1.0 작성. 초기 본인 전용 접근, 네트워크·OAuth·동시성·배포 순서·인수 기준 정의. 구현·실제 배포는 미실행. |
 | v3.64 | 2026-09-12 | 공통 Python 패키지화, Streamlit 6개 탭 분리, React·연구·운영·문서 재배치, 실행 파이프라인 분리, 경로 중앙화, HTML·정적 JSON 총평 재사용. S&P 500 개별 종목 매수/매도 표와 복사 요약 제외. 기존 LLM 180초 타임아웃 수정 포함. |
 | v3.63 | 2026-09-09 | OHLCV 유효성 검증, 불완전 대표 자산군 수집·추천 배치의 발행 차단. |
 
 리팩토링 직전 명세 원문은 [v3.63 작업 전 스냅샷](archive/investment_assistant_spec_v3.63_before_v3.64.md)에 보존한다.
-직전 현재 명세는 [v3.65 스냅샷](archive/investment_assistant_spec_v3.65.md)에 보존한다.
 이전 버전별 전체 문서는 [archive/](archive/)에 보관한다. 아카이브는 당시 경로와 운영 상태의 기록이며 현재 실행 지침은 본 문서와 README를 따른다.
 기존 에이전트 안내 원문도 [아카이브](archive/CLAUDE_before_v3.64.md)에 보존한다.
 
@@ -130,10 +127,7 @@ React 배포는 `apps/web/`에서 빌드하며 기존 `docs/` 경로로 발행�
 Docker 관련 파일은 `infrastructure/`, 설치 스크립트는 `scripts/`에 둔다.
 
 Streamlit 외부 서버의 실제 신규 배포는 이번 리팩토링에 포함하지 않는다.
-목표 구조는 GCP Compute Engine의 Streamlit + Cloudflare Tunnel이다. 공개 배포 코드와 테스트를 구현했으며 실제 서버 배포는 아직 수행하지 않았다.
-상세 요구사항과 인수 기준은 [GCP·Cloudflare 운영 명세 v1.1](streamlit_gcp_cloudflare_spec.md)을 따른다.
-접속은 전체 공개이며 도메인은 나중에 연결한다. 월 예산 0원 조건에 따라 기존 GCP 구성과 과금을 확인한 뒤 배포한다.
-공개 모드는 4개 조회 탭과 기존 docs 스냅샷만 제공하며 Drive·수집·모의투자 쓰기·유료 API를 차단한다. 비공개 로컬 6개 탭은 유지한다.
+배포 방식·Drive 인증 갱신·접근 권한·리소스·비용은 후속 서버 배포 검토에서 정한다.
 검토 결과는 [Streamlit 서버 배포 검토](../guides/STREAMLIT_DEPLOYMENT_REVIEW.md)에 정리했다.
 `test.yml`은 소스 변경 시 Ubuntu/Python 3.11에서 설치형 패키지와 회귀 테스트를 검증한다.
 

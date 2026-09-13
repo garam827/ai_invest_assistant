@@ -1,16 +1,33 @@
+# Public snapshot-only service. No credentials and no Internet-facing host port.
 services:
   streamlit-app:
+    image: ai-invest-streamlit:${APP_IMAGE_TAG:-local}
     build:
       context: ..
       dockerfile: infrastructure/Dockerfile
-    ports:
-      - "8501:8501"
-    restart: unless-stopped
-    env_file:
-      - ../.env
-    # client_secret.json/token.json are gitignored and excluded from the Docker build context
-    # (.dockerignore) on purpose — mounted read-only at runtime instead of baked into the image,
-    # so the image itself never contains credentials.
+    environment:
+      STREAMLIT_PUBLIC_MODE: "true"
+      STREAMLIT_ENABLE_LLM: "false"
+      GOOGLE_OAUTH_ALLOW_INTERACTIVE: "false"
+      INVEST_ASSISTANT_HOME: /app
+    expose:
+      - "8501"
     volumes:
-      - ../client_secret.json:/app/client_secret.json:ro
-      - ../token.json:/app/token.json:ro
+      - type: bind
+        source: ../docs
+        target: /app/docs
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=67108864,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: ${STREAMLIT_MEMORY_LIMIT:-640m}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

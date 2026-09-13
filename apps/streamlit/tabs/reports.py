@@ -64,12 +64,16 @@ def render():
         # 테스트/샘플 발행("_test" 접미어)은 GitHub Pages에 전혀 게시되지 않아(v3.27) 위
         # 표/링크에는 안 나온다 — 이 토글을 켜면 다운로드 목록에만 포함시켜, Drive에 저장된
         # 테스트 리포트 내용을 직접 받아서 확인할 수 있게 한다(기본은 꺼짐).
-        include_test_reports = st.toggle("테스트/샘플 리포트도 다운로드 목록에 포함", key="include_test_reports")
+        include_test_reports = False
+        if not config.STREAMLIT_PUBLIC_MODE:
+            include_test_reports = st.toggle("테스트/샘플 리포트도 다운로드 목록에 포함", key="include_test_reports")
         download_choices = {d: d for d in report_dates}
         if include_test_reports:
             for test_date in get_test_report_dates():
                 download_choices[f"{test_date.removesuffix('_test')} (테스트)"] = test_date
 
+        if not download_choices:
+            return
         with st.form("report_download_form"):
             dl_cols = st.columns([3, 1])
             download_label = dl_cols[0].selectbox(

@@ -7,11 +7,15 @@ import streamlit as st
 
 from apps.streamlit.constants import ALL_SECTORS_LABEL
 from apps.streamlit.services import get_drive_db, get_paper_positions, get_universe
+from invest_assistant import config
 from invest_assistant import universe as instrument_universe
 from invest_assistant.portfolio import paper as paper_trading
 
 
 def render():
+    if config.STREAMLIT_PUBLIC_MODE:
+        st.info("공개 서비스에서는 데이터 조회만 제공됩니다.")
+        return
     st.header("모의 투자 (Paper Trading)")
     st.caption("특정 종목을 특정일 종가에 매수했다고 가정하고, 그 포지션의 손익을 자동으로 추적합니다.")
 
