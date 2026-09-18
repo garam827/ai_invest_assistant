@@ -27,6 +27,8 @@ from invest_assistant.storage.runtime import (
     atomic_write_private,
     require_private_operation,
     serialized,
+    ticker_transaction,
+    transport_serialized,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +81,14 @@ class DriveDB:
     def _filename(ticker: str) -> str:
         return f"{ticker}.parquet"
 
+    def new_worker(self) -> DriveDB:
+        """Build an independent HTTP client in the calling worker thread."""
+        return DriveDB(folder_id=self.folder_id)
+
+    @transport_serialized
+    def close(self) -> None:
+        self.service.close()
+
     def _find_file_id(self, filename: str) -> str | None:
         query = f"name = '{filename}' and '{self.folder_id}' in parents and trashed = false"
         response = (
@@ -89,7 +99,7 @@ class DriveDB:
         files = response.get("files", [])
         return files[0]["id"] if files else None
 
-    @serialized
+    @transport_serialized
     def list_tickers(self) -> list[str]:
         """List all tickers currently stored in the Drive folder."""
         tickers: list[str] = []
@@ -107,7 +117,7 @@ class DriveDB:
                 break
         return tickers
 
-    @serialized
+    @transport_serialized
     def _download(self, filename: str) -> bytes | None:
         file_id = self._find_file_id(filename)
         if file_id is None:
@@ -121,7 +131,7 @@ class DriveDB:
             _, done = downloader.next_chunk()
         return buffer.getvalue()
 
-    @serialized
+    @transport_serialized
     def _upload(self, filename: str, data: bytes, mimetype: str) -> None:
         require_private_operation()
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mimetype, resumable=False)
@@ -139,6 +149,7 @@ class DriveDB:
             return None
         return pd.read_parquet(io.BytesIO(raw))
 
+    @ticker_transaction
     def save_ticker(self, ticker: str, df: pd.DataFrame) -> None:
         """Overwrite (or create) a ticker's Parquet file with the given DataFrame."""
         validate_ohlcv(df)
@@ -166,7 +177,7 @@ class DriveDB:
         """Overwrite (or create) a plain-text/HTML file."""
         self._upload(filename, text.encode("utf-8"), mimetype)
 
-    @serialized
+    @transport_serialized
     def list_filenames(self, prefix: str) -> list[str]:
         """List filenames in the Drive folder starting with `prefix` (e.g. '_report_')."""
         filenames: list[str] = []
@@ -184,7 +195,7 @@ class DriveDB:
                 break
         return sorted(filenames)
 
-    @serialized
+    @ticker_transaction
     def upsert_ticker(self, ticker: str, new_df: pd.DataFrame) -> pd.DataFrame:
         """Merge new rows into the existing file, drop duplicate dates (keep newest), save, return merged df."""
         existing_df = self.load_ticker(ticker)

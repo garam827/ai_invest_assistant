@@ -28,6 +28,10 @@ python -m unittest discover -s tests -v
 수집 명령은 Drive 데이터를 갱신합니다. 추천 명령은 설정에 따라 Drive·공개 레포트·정적 JSON을 저장하고 Telegram을 발송합니다.
 외부 호출 없이 검증하려면 위 테스트 명령을 사용합니다.
 
+일일 수집은 Drive 작업자 3개와 Yahoo 순차 조회를 조합합니다. `.env`의 `COLLECTION_WORKERS=1`로 순차 처리로 전환할 수 있습니다.
+요청 제한 시 공통 대기를 적용하며 실패 종목만 재시도합니다. [설정·검증 기준](documentation/specs/parallel_collection_spec.md)
+외부 API 없이 실행 구조를 비교하려면 `python scripts/benchmark_collection.py`를 사용합니다. 이 측정은 가상 지연을 사용하며 실제 운영 속도를 뜻하지 않습니다.
+
 React 개발·빌드:
 
 ```powershell

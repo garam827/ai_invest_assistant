@@ -37,6 +37,10 @@ _bootstrap_secret_file(GOOGLE_OAUTH_TOKEN_PATH, "GOOGLE_OAUTH_TOKEN_JSON")
 # yfinance collection
 INITIAL_HISTORY_PERIOD = os.environ.get("INITIAL_HISTORY_PERIOD", "5y")
 YFINANCE_REQUEST_DELAY_SEC = float(os.environ.get("YFINANCE_REQUEST_DELAY_SEC", "0.5"))
+COLLECTION_WORKERS = int(os.environ.get("COLLECTION_WORKERS", "3"))
+COLLECTION_RETRY_ROUNDS = int(os.environ.get("COLLECTION_RETRY_ROUNDS", "1"))
+COLLECTION_RETRY_DELAY_SEC = float(os.environ.get("COLLECTION_RETRY_DELAY_SEC", "30"))
+YFINANCE_RATE_LIMIT_COOLDOWN_SEC = float(os.environ.get("YFINANCE_RATE_LIMIT_COOLDOWN_SEC", "60"))
 
 # Trend-following signal engine (Tom Basso style)
 DONCHIAN_ENTRY_WINDOW = int(os.environ.get("DONCHIAN_ENTRY_WINDOW", "20"))

@@ -1,8 +1,7 @@
 # Streamlit GCP·Cloudflare 운영 명세
 
-버전: **v1.2 — 2026-09-18**
-
-프로젝트 명세: [v3.67](investment_assistant_spec.md)
+버전: **v1.1 — 2026-09-13**  
+프로젝트 명세: [v3.66](investment_assistant_spec.md)  
 상태: 배포 코드·테스트 구현, 실제 GCP 배포 및 도메인 연결 미실행
 
 ## 확정 요구사항
@@ -47,9 +46,7 @@ UID 10001, 읽기 전용 루트 파일시스템, 임시 `/tmp`, 읽기 전용 do
 
 비공개 로컬 모드는 기존 6개 탭을 유지한다. OAuth 동의는 `scripts/authorize_drive.py`로 명시적으로 실행한다.
 토큰은 원자적으로 교체하며 headless 환경에서 인증 브라우저를 시작하지 않는다.
-Drive 전송은 클라이언트별 잠금으로 보호하고 일일 수집은 작업자별 연결을 사용한다.
-같은 종목의 읽기·조회·병합·저장, OAuth 갱신, 모의투자 읽기·수정·쓰기는 각각 필요한 범위의 프로세스 내부 잠금으로 보호한다.
-수집 UI는 중복 실행을 차단하며 Yahoo 조회는 공통 잠금으로 순차 처리한다. [병렬 수집 명세](parallel_collection_spec.md)
+Drive 전송과 모의투자 읽기·수정·쓰기는 프로세스 내부 RLock으로 직렬화하고 수집 UI는 중복 실행을 차단한다.
 잠금은 단일 프로세스용이다. 여러 프로세스·서버가 동시에 같은 데이터를 쓰는 구성은 지원하지 않는다.
 
 ## 0원 예산의 배포 전 조건
@@ -77,4 +74,3 @@ GCP Free Tier는 특정 미국 리전의 e2-micro 사용량, 표준 영구 디�
 
 실행·갱신·복구는 [운영 가이드](../guides/PUBLIC_STREAMLIT_RUNBOOK.md)를 따른다.
 이전 비공개 설계는 [v1.0 아카이브](archive/streamlit_gcp_cloudflare_spec_v1.0.md)에 보관한다.
-직전 공개 설계는 [v1.1 아카이브](archive/streamlit_gcp_cloudflare_spec_v1.1.md)에 보관한다.

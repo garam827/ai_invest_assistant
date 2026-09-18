@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import local
 
 import pandas as pd
 
@@ -13,7 +15,12 @@ from invest_assistant.data.market import (
     fetch_ohlcv,
     get_sp500_tickers,
 )
+from invest_assistant.data.quality import validate_ohlcv
 from invest_assistant.storage.drive import DriveDB
+from invest_assistant.storage.runtime import (
+    require_private_operation,
+    ticker_transaction,
+)
 from invest_assistant.universe import ASSET_CLASS_TICKERS, UNIVERSE_FILENAME
 
 logger = logging.getLogger(__name__)
@@ -76,52 +83,106 @@ def sync_universe(drive_db: DriveDB, end: str | None = None) -> dict:
     logger.info("Universe sync complete: %d active, %d inactive (kept for history)", len(active), len(inactive))
     return {"active": active, "added": to_add, "inactive": inactive}
 
-def _update_one_ticker(drive_db: DriveDB, ticker: str, end: str | None = None) -> None:
-    """Fetch since the ticker's last stored date (or a full backfill if it has no data yet) and upsert."""
+@ticker_transaction
+def _update_one_ticker(drive_db: DriveDB, ticker: str, end: str | None = None) -> dict:
+    """Hold the ticker transaction across read, fetch, merge, and save."""
+    started = time.monotonic()
     existing = drive_db.load_ticker(ticker)
+    read_done = time.monotonic()
     if existing is not None and not existing.empty:
         last_date = pd.to_datetime(existing["Date"]).max()
         start = (last_date - pd.Timedelta(days=5)).strftime("%Y-%m-%d")
         new_df = fetch_ohlcv(ticker, start=start, end=end)
     else:
         new_df = fetch_ohlcv(ticker, period=config.INITIAL_HISTORY_PERIOD, end=end)
+    validate_ohlcv(new_df)  # Empty/invalid responses cannot count as success.
+    fetched = time.monotonic()
+    frames = [existing, new_df] if existing is not None and not existing.empty else [new_df]
+    merged = (pd.concat(frames, ignore_index=True).drop_duplicates(subset="Date", keep="last")
+              .sort_values("Date").reset_index(drop=True))
+    validate_ohlcv(merged)
+    drive_db.save_ticker(ticker, merged)
+    finished = time.monotonic()
+    timings = {"read_sec": read_done - started, "yahoo_including_wait_sec": fetched - read_done,
+               "merge_save_sec": finished - fetched, "total_sec": finished - started}
+    logger.info("Updated %s (%d rows; latest=%s); timings=%s", ticker, len(merged), merged.iloc[-1]["Date"], timings)
+    return timings
 
-    if new_df.empty:
-        logger.info("No new data for %s", ticker)
-        return
 
-    merged = drive_db.upsert_ticker(ticker, new_df)
-    latest = merged.iloc[-1]
-    logger.info("Updated %s (%d total rows; latest=%s close=%s)",
-                ticker, len(merged), latest["Date"], latest["Close"])
+def _run_updates(drive_db, tickers, end=None) -> dict:
+    """Each worker owns its Drive transport; YahooGate serializes Yahoo only."""
+    require_private_operation()
+    workers = config.COLLECTION_WORKERS
+    rounds = config.COLLECTION_RETRY_ROUNDS
+    if not 1 <= workers <= 8 or not 0 <= rounds <= 3 or config.COLLECTION_RETRY_DELAY_SEC < 0:
+        raise ValueError("Collection requires workers=1..8, retry_rounds=0..3, nonnegative retry delay")
+    pending = list(dict.fromkeys(tickers))
+    total = len(pending)
+    results = {}
+    state = local()
+    clients = []
+    started = time.monotonic()
 
-def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> None:
-    """Fetch the latest bar(s) per ticker and upsert into its Drive-backed Parquet file."""
+    def update(ticker):
+        if workers == 1:
+            db = drive_db
+        else:
+            if not hasattr(state, "db"):
+                state.db = drive_db.new_worker()
+                clients.append(state.db)
+            db = state.db
+        return _update_one_ticker(db, ticker, end=end)
+
+    try:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="collect") as pool:
+            for attempt in range(1, rounds + 2):
+                if not pending:
+                    break
+                if attempt > 1:
+                    delay = config.COLLECTION_RETRY_DELAY_SEC * 2 ** (attempt - 2)
+                    logger.info("Retrying %d failed tickers after %.1fs", len(pending), delay)
+                    time.sleep(delay)
+                futures = {pool.submit(update, ticker): ticker for ticker in pending}
+                failed = []
+                for future in as_completed(futures):
+                    ticker = futures[future]
+                    try:
+                        timings = future.result()
+                        results[ticker] = {"status": "updated", "attempts": attempt, "timings": timings}
+                    except Exception as exc:
+                        failed.append(ticker)
+                        results[ticker] = {"status": "failed", "attempts": attempt,
+                                           "error_type": type(exc).__name__}
+                        logger.exception("Collection failed for %s (round %d)", ticker, attempt)
+                    # Main thread emits progress so Streamlit can safely display buffered logs.
+                    logger.info("Collection progress: %d/%d; %s=%s", len(results), total, ticker, results[ticker]["status"])
+                pending = failed
+    finally:
+        for client in clients:
+            try:
+                client.close()
+            except Exception:
+                logger.warning("Failed to close a collection client", exc_info=True)
+    failed = sorted(t for t, result in results.items() if result["status"] == "failed")
+    report = {"results": results, "failed": failed, "elapsed_sec": time.monotonic() - started, "workers": workers}
+    logger.info("Collection finished: total=%d updated=%d failed=%d elapsed=%.2fs workers=%d",
+                len(results), len(results) - len(failed), len(failed), report["elapsed_sec"], workers)
+    return report
+
+
+def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: str | None = None) -> dict:
     if tickers is None:
         universe = drive_db.load_json(UNIVERSE_FILENAME)
         tickers = (universe or {}).get("active_tickers") or drive_db.list_tickers() or get_sp500_tickers()
-    logger.info("Starting daily update for %d tickers", len(tickers))
+    return _run_updates(drive_db, tickers, end=end)
 
-    for ticker in tickers:
-        try:
-            _update_one_ticker(drive_db, ticker, end=end)
-        except Exception:
-            logger.exception("Failed to update %s", ticker)
-        time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
 
-def run_asset_class_update(drive_db: DriveDB, end: str | None = None) -> None:
-    """Backfill (first run) or update (subsequent runs) the representative asset-class ETF proxies."""
-    logger.info("Starting asset-class update for %d tickers", len(ASSET_CLASS_TICKERS))
-    failed = []
-    for ticker in ASSET_CLASS_TICKERS:
-        try:
-            _update_one_ticker(drive_db, ticker, end=end)
-        except Exception:
-            logger.exception("Failed to update asset-class ticker %s", ticker)
-            failed.append(ticker)
-        time.sleep(config.YFINANCE_REQUEST_DELAY_SEC)
-    if failed:
-        raise RuntimeError(f"Asset-class collection incomplete: {', '.join(failed)}")
+def run_asset_class_update(drive_db: DriveDB, end: str | None = None) -> dict:
+    report = _run_updates(drive_db, list(ASSET_CLASS_TICKERS), end=end)
+    if report["failed"]:
+        raise RuntimeError(f"Asset-class collection incomplete: {', '.join(report['failed'])}")
+    return report
+
 
 def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
     """One button's worth of work: S&P 500 membership sync + daily update + asset-class ETF update.
@@ -131,9 +192,9 @@ def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
     day's data than the run being recovered was meant to see -- see fetch_ohlcv's docstring.
     """
     sync_result = sync_universe(drive_db, end=end)
-    run_daily_update(drive_db, end=end)
-    run_asset_class_update(drive_db, end=end)
-    return sync_result
+    daily = run_daily_update(drive_db, end=end)
+    assets = run_asset_class_update(drive_db, end=end)
+    return {**sync_result, "collection": {"stocks": daily, "assets": assets}}
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")

@@ -17,4 +17,13 @@ def validate_ohlcv(df: pd.DataFrame) -> None:
              & pd.to_datetime(df["Date"], errors="coerce").notna())
     if not valid.all():
         dates = df.loc[~valid, "Date"].astype(str).tail(5).tolist()
-        raise ValueError(f"Invalid OHLCV: {int((~valid).sum())} rows; dates={dates}")
+        invalid_fields = {}
+        for column in prices:
+            invalid_fields[column] = ~np.isfinite(prices[column]) | prices[column].le(0)
+        invalid_fields['Volume'] = ~np.isfinite(volume) | volume.lt(0)
+        invalid_fields['Date'] = pd.to_datetime(df['Date'], errors='coerce').isna()
+        details = [
+            {column: str(df.iloc[position][column]) for column, mask in invalid_fields.items() if mask.iloc[position]}
+            for position in np.flatnonzero(~valid.to_numpy())[-5:]
+        ]
+        raise ValueError(f"Invalid OHLCV: {int((~valid).sum())} rows; dates={dates}; invalid_fields={details}")

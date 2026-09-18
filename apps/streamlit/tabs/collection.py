@@ -43,6 +43,9 @@ def render():
                 db = DriveDB()
                 sync_result = collection_pipeline.run_full_collection(db)
             handler._flush()
+            stock_failures = sync_result["collection"]["stocks"]["failed"]
+            if stock_failures:
+                st.warning(f"개별 종목 {len(stock_failures)}개 적재 실패: {', '.join(stock_failures)}")
             st.success(
                 f"완료! 활성 종목 {len(sync_result['active'])}개 "
                 f"(신규 편입 {len(sync_result['added'])}개, 편출 {len(sync_result['inactive'])}개) "

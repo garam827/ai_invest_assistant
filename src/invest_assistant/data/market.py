@@ -14,6 +14,7 @@ import requests
 import yfinance as yf
 
 from invest_assistant.data.quality import validate_ohlcv
+from invest_assistant.data.throttle import yahoo_gate
 from invest_assistant.universe import MACRO_TICKERS
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def fetch_macro_snapshot() -> dict:
     snapshot = {}
     for ticker, meta in MACRO_TICKERS.items():
         try:
-            history = yf.Ticker(ticker).history(period="5d", interval="1d")
+            history = yahoo_gate.call(lambda: yf.Ticker(ticker).history(period="5d", interval="1d", timeout=30))
             if history.empty:
                 continue
             closes = history["Close"]
@@ -84,17 +85,17 @@ def fetch_ohlcv(
     happened) -- see run_daily_update/run_asset_class_update/run_full_collection's own `end` param.
     """
     for attempt in range(3):
-        history = yf.Ticker(ticker).history(
-            period=period, start=start, end=end, interval="1d", auto_adjust=True
-        )
+        history = yahoo_gate.call(lambda: yf.Ticker(ticker).history(
+            period=period, start=start, end=end, interval="1d", auto_adjust=True, timeout=30
+        ))
         if history.empty:
             return history
         history = history.reset_index()[OHLCV_COLUMNS]
         history["Date"] = pd.to_datetime(history["Date"]).dt.tz_localize(None)
         try:
             validate_ohlcv(history)
-        except ValueError:
-            logger.warning("%s: invalid OHLCV response (attempt %d/3)", ticker, attempt + 1)
+        except ValueError as exc:
+            logger.warning("%s: invalid OHLCV response (attempt %d/3): %s", ticker, attempt + 1, exc)
             if attempt == 2:
                 raise
             time.sleep(2 * (attempt + 1))

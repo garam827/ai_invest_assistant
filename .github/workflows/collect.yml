@@ -18,10 +18,19 @@ on:
     - cron: "57 21 * * 1-5"
   workflow_dispatch: {} # allows manual "Run workflow" from the Actions tab for testing
 
+concurrency:
+  group: drive-data-collection
+  cancel-in-progress: false
+
 jobs:
   collect:
     runs-on: ubuntu-latest
     env:
+      COLLECTION_WORKERS: ${{ vars.COLLECTION_WORKERS || '3' }}
+      COLLECTION_RETRY_ROUNDS: ${{ vars.COLLECTION_RETRY_ROUNDS || '1' }}
+      COLLECTION_RETRY_DELAY_SEC: ${{ vars.COLLECTION_RETRY_DELAY_SEC || '30' }}
+      YFINANCE_REQUEST_DELAY_SEC: ${{ vars.YFINANCE_REQUEST_DELAY_SEC || '0.5' }}
+      YFINANCE_RATE_LIMIT_COOLDOWN_SEC: ${{ vars.YFINANCE_RATE_LIMIT_COOLDOWN_SEC || '60' }}
       GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
       GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
       DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from threading import get_ident
 
 
 class _StreamlitLogHandler(logging.Handler):
@@ -11,11 +12,15 @@ class _StreamlitLogHandler(logging.Handler):
         self.placeholder = placeholder
         self.flush_every = flush_every
         self.lines: list[str] = []
+        self.owner_thread = get_ident()
 
     def emit(self, record: logging.LogRecord) -> None:
         self.lines.append(self.format(record))
-        if len(self.lines) % self.flush_every == 0:
+        if get_ident() == self.owner_thread and len(self.lines) % self.flush_every == 0:
             self._flush()
 
     def _flush(self) -> None:
-        self.placeholder.code("\n".join(self.lines[-300:]))
+        if get_ident() == self.owner_thread:
+            with self.lock:
+                text = "\n".join(self.lines[-300:])
+            self.placeholder.code(text)

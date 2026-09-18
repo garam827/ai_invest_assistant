@@ -8,6 +8,33 @@ from pathlib import Path
 from threading import RLock
 
 _storage_lock = RLock()
+_lock_registry_guard = RLock()
+_resource_locks = {}
+
+
+def resource_lock(folder: str, filename: str):
+    """Single-process file transaction lock shared by independent Drive clients."""
+    with _lock_registry_guard:
+        return _resource_locks.setdefault((folder, filename), RLock())
+
+
+def transport_serialized(function):
+    """Protect one client's non-thread-safe HTTP transport, not other clients."""
+    @wraps(function)
+    def wrapped(self, *args, **kwargs):
+        with _lock_registry_guard:
+            lock = self.__dict__.setdefault('_transport_lock', RLock())
+        with lock:
+            return function(self, *args, **kwargs)
+    return wrapped
+
+
+def ticker_transaction(function):
+    @wraps(function)
+    def wrapped(self, ticker, *args, **kwargs):
+        with resource_lock(getattr(self, 'folder_id', ''), f'{ticker}.parquet'):
+            return function(self, ticker, *args, **kwargs)
+    return wrapped
 
 
 def serialized(function):

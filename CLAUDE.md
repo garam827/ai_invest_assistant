@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.66](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.67](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
@@ -39,6 +39,7 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - All 12 representative asset tickers use the same rules as individual stocks. Membership synchronization must exclude these proxies from S&P 500 delisting calculations.
 - Validate OHLCV before saving/calculating. An incomplete representative-asset collection or recommendation batch must fail before publication.
 - Preserve request throttling and cache keys tied to ticker/data freshness. Every Streamlit tab executes on each rerun.
+- Collection workers own independent Drive clients; Yahoo requests share one gate and cooldown. Preserve per-ticker read/fetch/merge/save transactions and wait for every write before completing a batch. See [parallel collection](documentation/specs/parallel_collection_spec.md).
 - LLM/news inputs are required for their respective calls; preserve clear configuration errors and the caller's rule-based fallback.
 - `SKIP_LLM_AND_NEWS` skips paid news/LLM in manual runs. `IS_TEST_REPORT` suffixes both recommendation and report filenames, without changing real signal history or static latest data.
 - Test reports do have separate public HTML files. Telegram test behavior remains defined by the existing pipeline; tests must mock notifications.

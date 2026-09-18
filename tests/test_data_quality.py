@@ -79,6 +79,8 @@ class DataQualityTests(unittest.TestCase):
 
     def test_collection_failure_blocks_downstream_workflow(self):
         with patch.object(collection_pipeline, "ASSET_CLASS_TICKERS", {"SPY": {}, "QQQ": {}}), \
+             patch.object(collection_pipeline.config, "COLLECTION_WORKERS", 1), \
+             patch.object(collection_pipeline.config, "COLLECTION_RETRY_ROUNDS", 0), \
              patch.object(collection_pipeline, "_update_one_ticker", side_effect=[ValueError("invalid"), None]) as update, \
              patch.object(collection_pipeline.time, "sleep"), self.assertLogs(collection_pipeline.logger):
             with self.assertRaisesRegex(RuntimeError, "SPY"):
