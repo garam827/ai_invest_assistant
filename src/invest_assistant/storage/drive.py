@@ -25,6 +25,7 @@ from invest_assistant import config
 from invest_assistant.data.quality import validate_ohlcv
 from invest_assistant.storage.runtime import (
     atomic_write_private,
+    credential_serialized,
     require_private_operation,
     serialized,
     ticker_transaction,
@@ -37,14 +38,27 @@ SCOPES = ["https://www.googleapis.com/auth/drive"]
 PARQUET_MIMETYPE = "application/octet-stream"
 
 
-@serialized
+class _SerializedCredentials(Credentials):
+    """Protect refreshes triggered automatically by each worker's transport."""
+
+    @credential_serialized
+    def refresh(self, request):
+        require_private_operation()
+        try:
+            super().refresh(request)
+        except RefreshError:
+            raise RuntimeError("Drive authorization must be renewed on a trusted local machine.") from None
+        atomic_write_private(config.GOOGLE_OAUTH_TOKEN_PATH, self.to_json())
+
+
+@credential_serialized
 def _load_credentials() -> Credentials:
     """Load cached OAuth credentials, refreshing or running the consent flow as needed."""
     require_private_operation()
     creds = None
     token_path = config.GOOGLE_OAUTH_TOKEN_PATH
     if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        creds = _SerializedCredentials.from_authorized_user_file(token_path, SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -59,6 +73,7 @@ def _load_credentials() -> Credentials:
                 config.GOOGLE_OAUTH_CLIENT_SECRET_PATH, SCOPES
             )
             creds = flow.run_local_server(port=0)
+            creds = _SerializedCredentials.from_authorized_user_info(json.loads(creds.to_json()), SCOPES)
         atomic_write_private(token_path, creds.to_json())
 
     return creds

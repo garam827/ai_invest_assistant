@@ -1,10 +1,12 @@
 """Concurrency and failure boundaries; all market/Drive calls are simulated."""
 import copy
 import logging
+import tempfile
 import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -15,7 +17,9 @@ from invest_assistant import config
 from invest_assistant.data.quality import validate_ohlcv
 from invest_assistant.data.throttle import YahooGate
 from invest_assistant.pipelines import collect
+from invest_assistant.storage import runtime
 from invest_assistant.storage.drive import DriveDB
+from invest_assistant.storage.drive import _SerializedCredentials as WorkerCredentials
 
 
 def frame(day='2026-09-14'):
@@ -45,6 +49,36 @@ class ParallelCollectionTests(unittest.TestCase):
             clients.append(db)
         with ThreadPoolExecutor(max_workers=2) as pool:
             self.assertEqual(list(pool.map(lambda db: db.list_tickers(), clients)), [[], []])
+
+    def test_automatic_worker_credential_refreshes_are_serialized_and_persisted(self):
+        from google.oauth2.credentials import Credentials
+        active = 0
+        peak = 0
+        def refresh(credentials, request):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            time.sleep(0.02)
+            credentials.token = 'refreshed-test-token'
+            active -= 1
+        clients = [WorkerCredentials(token='test-token') for _ in range(2)]
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(config, 'GOOGLE_OAUTH_TOKEN_PATH', str(Path(directory) / 'token.json')), \
+                patch.object(Credentials, 'refresh', refresh), ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda credentials: credentials.refresh(None), clients))
+            self.assertIn('refreshed-test-token', (Path(directory) / 'token.json').read_text())
+        self.assertEqual(peak, 1)
+
+    def test_transport_refresh_does_not_wait_for_paper_transaction_lock(self):
+        from google.oauth2.credentials import Credentials
+        credentials = WorkerCredentials(token='test-token')
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(config, 'GOOGLE_OAUTH_TOKEN_PATH', str(Path(directory) / 'token.json')), \
+                patch.object(Credentials, 'refresh'), ThreadPoolExecutor(max_workers=1) as pool:
+            @runtime.serialized
+            def paper_transaction():
+                pool.submit(credentials.refresh, None).result(timeout=3)
+            paper_transaction()
 
     def test_workers_overlap_deduplicate_preserve_history_and_finish_saves(self):
         rendezvous = threading.Barrier(3)

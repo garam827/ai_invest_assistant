@@ -8,8 +8,18 @@ from pathlib import Path
 from threading import RLock
 
 _storage_lock = RLock()
+_credential_lock = RLock()
 _lock_registry_guard = RLock()
 _resource_locks = {}
+
+
+def credential_serialized(function):
+    """OAuth has its own lock: transport refresh must not acquire paper's lock."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with _credential_lock:
+            return function(*args, **kwargs)
+    return wrapped
 
 
 def resource_lock(folder: str, filename: str):
