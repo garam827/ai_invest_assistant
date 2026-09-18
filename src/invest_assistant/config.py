@@ -151,3 +151,13 @@ REPORT_BASE_URL = os.environ.get("REPORT_BASE_URL", "https://garam827.github.io/
 # to true so local dev is unaffected; set to "false" via the deployed app's secrets/env. This is
 # independent of SKIP_LLM_AND_NEWS above (that skips news too, and is cron-only).
 STREAMLIT_ENABLE_LLM = os.environ.get("STREAMLIT_ENABLE_LLM", "true").lower() == "true"
+
+# Notion mirror of the daily publication (optional — every Notion step no-ops when unset, the
+# same "an optional publication channel never takes down the batch" rule telegram_notifier
+# follows). NOTION_PARENT_PAGE_ID is only read by scripts/setup_notion_db.py, which creates the
+# two databases once and prints the IDs to put in the two vars below; the daily pipeline never
+# creates a database, it only writes rows into these fixed IDs.
+NOTION_API_KEY = os.environ.get("NOTION_API_KEY")
+NOTION_PARENT_PAGE_ID = os.environ.get("NOTION_PARENT_PAGE_ID")
+NOTION_REPORTS_DB_ID = os.environ.get("NOTION_REPORTS_DB_ID")
+NOTION_SIGNALS_DB_ID = os.environ.get("NOTION_SIGNALS_DB_ID")
