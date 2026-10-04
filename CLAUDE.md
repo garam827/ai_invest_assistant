@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.69](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.70](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
