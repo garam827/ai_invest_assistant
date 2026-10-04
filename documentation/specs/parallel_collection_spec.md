@@ -42,6 +42,8 @@ Yahoo 요청은 공통 잠금 안에서 실행한다. 이전 요청 종료 후 �
 | COLLECTION_RETRY_ROUNDS | 1 | 최초 처리 이후 추가 재시도 라운드, 0~3 |
 | COLLECTION_RETRY_DELAY_SEC | 30 | 실패 라운드 사이 기본 대기, 추가 라운드마다 2배 |
 | YFINANCE_RATE_LIMIT_COOLDOWN_SEC | 60 | Yahoo 제한 오류 공통 대기의 기본값 |
+| COLLECTION_RUN_ATTEMPTS | 4 | `collect.yml` 전체 수집 실행 시도 횟수(워크플로 전용). 실패 시 같은 실행 안에서 재시도 |
+| COLLECTION_RUN_RETRY_DELAY_SEC | 1800 | 전체 수집 재시도 사이 대기(워크플로 전용). 다음 시도가 13~22시 UTC면 중단 |
 
 잠금은 프로세스 내부에만 적용된다. GitHub 수집 워크플로에는 concurrency 그룹을 추가해 중복 실행을 직렬화한다.
 로컬에서는 `.env`, GitHub Actions에서는 같은 이름의 Repository variables로 설정한다. GitHub 변수 미설정 시 표의 기본값을 사용한다.
