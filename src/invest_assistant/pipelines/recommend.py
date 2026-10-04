@@ -1,6 +1,8 @@
 """Daily recommendations, report publication, static export, and notifications."""
 from __future__ import annotations
 
+import argparse
+import datetime
 import logging
 
 from invest_assistant import config
@@ -41,7 +43,10 @@ def run_asset_class_recommendations(
     get_recommendation_for_ticker/get_sp500_signal_summary, and used directly as the report
     date (skipping _resolve_report_date's SPY-anchored inference, since the caller already
     knows exactly which day this is). For recovering a specific lost/mislabeled past day
-    (see _resolve_report_date) -- the normal daily cron never sets this.
+    (see _resolve_report_date) -- the normal daily cron never sets this. Sections that can
+    only describe the present (paper positions, backtest summary, live macro snapshot, macro
+    news briefing, LLM overview) are omitted from a backfilled report, and its charts are
+    truncated at `as_of`.
     """
     tickers = tickers if tickers is not None else instrument_universe.ASSET_CLASS_TICKERS
     logger.info("Starting asset-class recommendations for %d tickers", len(tickers))
@@ -94,15 +99,16 @@ def run_asset_class_recommendations(
     # cron path — are read-only here so the day's report/Telegram summary can include them.
     # A failure here must never block the recommendations/report/Telegram that already
     # succeeded (same principle as every other try/except in this function).
-    try:
-        open_positions = [
-            p
-            for p in paper_trading.compute_position_returns(drive_db, paper_trading.load_positions(drive_db))
-            if p["status"] == "open"
-        ]
-    except Exception:
-        logger.exception("Failed to load paper trading positions (report/Telegram will omit this section)")
-        open_positions = []
+    open_positions = []
+    if as_of is None:
+        try:
+            open_positions = [
+                p
+                for p in paper_trading.compute_position_returns(drive_db, paper_trading.load_positions(drive_db))
+                if p["status"] == "open"
+            ]
+        except Exception:
+            logger.exception("Failed to load paper trading positions (report/Telegram will omit this section)")
 
     # Recent signal history (최근 20거래일) for the report's own reference table — Drive-only,
     # never reaches the LLM/news calls above. A failure here must not block the report either.
@@ -130,33 +136,36 @@ def run_asset_class_recommendations(
     # Full-universe backtest summary (backtest.py's `python backtest.py full-universe`,
     # manual/local — see investment_assistant_spec.md [기능 7]) — read-only. Missing/failed
     # load just omits that report section, same as sp500_signals above.
-    try:
-        backtest_summary = drive_db.load_json(BACKTEST_SUMMARY_FILENAME)
-    except Exception:
-        logger.exception("Failed to load backtest summary (report will omit this section)")
-        backtest_summary = None
+    backtest_summary = None
+    if as_of is None:
+        try:
+            backtest_summary = drive_db.load_json(BACKTEST_SUMMARY_FILENAME)
+        except Exception:
+            logger.exception("Failed to load backtest summary (report will omit this section)")
 
     # VIX + short/mid/long US Treasury yield macro-context snapshot (user request) — fetched
     # fresh live via yfinance every run, not stored to Drive/run through signal_engine (see
     # data_fetcher.fetch_macro_snapshot's docstring). A fetch failure just omits the section.
-    try:
-        macro_snapshot = data_fetcher.fetch_macro_snapshot()
-    except Exception:
-        logger.exception("Failed to fetch macro snapshot (report will omit this section)")
-        macro_snapshot = {}
+    macro_snapshot = {}
+    if as_of is None:
+        try:
+            macro_snapshot = data_fetcher.fetch_macro_snapshot()
+        except Exception:
+            logger.exception("Failed to fetch macro snapshot (report will omit this section)")
 
     # General (non-ticker) 해외 매크로/지정학 이슈 요약 (user request) -- Exa search + LLM
     # distillation, independent of any single ticker's signal. Skipped on a SKIP_LLM_AND_NEWS
     # test run (see get_macro_issues_briefing) and omitted on any other failure, same as every
     # other optional report section above.
-    try:
-        macro_issues = get_macro_issues_briefing(drive_db)
-    except Exception:
-        logger.exception("Failed to generate macro issues briefing (report will omit this section)")
-        macro_issues = None
+    macro_issues = None
+    if as_of is None:
+        try:
+            macro_issues = get_macro_issues_briefing(drive_db)
+        except Exception:
+            logger.exception("Failed to generate macro issues briefing (report will omit this section)")
 
     overview = ""
-    if results and not config.SKIP_LLM_AND_NEWS:
+    if results and as_of is None and not config.SKIP_LLM_AND_NEWS:
         try:
             overview = llm_briefing.generate_portfolio_overview(results, recent_history)
         except Exception:
@@ -175,6 +184,7 @@ def run_asset_class_recommendations(
                 macro_snapshot=macro_snapshot,
                 macro_issues=macro_issues,
                 overview=overview,
+                as_of=as_of,
             )
             report_store.save_report(drive_db, report_date, report_html)
             # A test publish now does reach docs/reports/GitHub Pages too (v3.52, under its
@@ -219,6 +229,22 @@ def run_asset_class_recommendations(
 
     return results
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--as-of", action="append", default=[], metavar="YYYY-MM-DD",
+        help="backfill a past trading day's report (repeatable); omit for the normal daily run",
+    )
+    args = parser.parse_args(argv)
+    for value in args.as_of:
+        datetime.date.fromisoformat(value)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    run_asset_class_recommendations(DriveDB())
+    drive_db = DriveDB()
+    if not args.as_of:
+        run_asset_class_recommendations(drive_db)
+    for value in args.as_of:
+        run_asset_class_recommendations(drive_db, as_of=value)
+
+
+if __name__ == "__main__":
+    main()
