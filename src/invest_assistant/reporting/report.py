@@ -14,6 +14,8 @@ import datetime
 import html
 import json
 
+import pandas as pd
+
 from invest_assistant import universe as instrument_universe
 from invest_assistant.analysis import signals as signal_engine
 from invest_assistant.reporting import charts as chart_builder
@@ -299,8 +301,11 @@ def _build_signal_history_html(signal_history: dict) -> str:
     return f"<h2>최근 시그널 이력</h2>{table}"
 
 
-def _build_chart_html(drive_db, ticker: str, include_plotlyjs) -> str | None:
+def _build_chart_html(drive_db, ticker: str, include_plotlyjs, as_of: str | None = None) -> str | None:
     raw_df = drive_db.load_ticker(ticker)
+    if raw_df is not None and as_of is not None:
+        # A backfilled report must not chart bars after the day it represents.
+        raw_df = raw_df[pd.to_datetime(raw_df["Date"]) <= pd.Timestamp(as_of)]
     if raw_df is None or raw_df.empty:
         return None
     signals = signal_engine.compute_signals(raw_df)
@@ -329,7 +334,9 @@ def _build_news_cards_html(news_items: list[dict]) -> str:
     return f"<div class='news-list'><h4>참고 뉴스 ({len(news_items)}건)</h4><div class='news-cards-grid'>{''.join(cards)}</div></div>"
 
 
-def _build_signal_sections_html(drive_db, results: dict, chart_js_loaded: list[bool]) -> str:
+def _build_signal_sections_html(
+    drive_db, results: dict, chart_js_loaded: list[bool], as_of: str | None = None
+) -> str:
     """One expandable card per 매수/매도 ticker: LLM narrative (or rule-based fallback text,
     already computed by recommendation_engine.get_recommendation_for_ticker — no news/LLM
     call happens here) + the Exa news articles it was based on + a collapsible chart.
@@ -343,7 +350,7 @@ def _build_signal_sections_html(drive_db, results: dict, chart_js_loaded: list[b
         color = ACTION_COLOR.get(reco["action"], "#757575")
 
         try:
-            chart_html = _build_chart_html(drive_db, ticker, "cdn" if not chart_js_loaded[0] else False)
+            chart_html = _build_chart_html(drive_db, ticker, "cdn" if not chart_js_loaded[0] else False, as_of)
             chart_js_loaded[0] = True
         except Exception:
             chart_html = None
@@ -372,7 +379,9 @@ def _build_signal_sections_html(drive_db, results: dict, chart_js_loaded: list[b
     return "".join(sections)
 
 
-def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]) -> str:
+def _build_hold_charts_html(
+    drive_db, results: dict, chart_js_loaded: list[bool], as_of: str | None = None
+) -> str:
     """HOLD tickers get no news/LLM section (recommendation_engine skips both for HOLD) —
     just their chart, tucked into one collapsed block so the page isn't dominated by
     tickers with nothing new to report.
@@ -383,7 +392,7 @@ def _build_hold_charts_html(drive_db, results: dict, chart_js_loaded: list[bool]
             continue
         meta = instrument_universe.ASSET_CLASS_TICKERS.get(ticker, {})
         try:
-            chart_html = _build_chart_html(drive_db, ticker, "cdn" if not chart_js_loaded[0] else False)
+            chart_html = _build_chart_html(drive_db, ticker, "cdn" if not chart_js_loaded[0] else False, as_of)
             chart_js_loaded[0] = True
         except Exception:
             continue
@@ -526,8 +535,12 @@ def build_daily_report_html(
     macro_snapshot: dict | None = None,
     macro_issues: dict | None = None,
     overview: str = "",
+    as_of: str | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
+
+    `as_of` (YYYY-MM-DD, inclusive) truncates every chart to bars on or before that day,
+    for historical backfills; None charts each ticker's full stored history.
 
     `sp500_signals` is retained for caller compatibility but omitted from the report
     and its copyable Markdown summary.
@@ -575,8 +588,8 @@ def build_daily_report_html(
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
-    signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded)
-    hold_html = _build_hold_charts_html(drive_db, results, chart_js_loaded)
+    signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded, as_of)
+    hold_html = _build_hold_charts_html(drive_db, results, chart_js_loaded, as_of)
 
     return f"""<!doctype html>
 <html lang="ko">
