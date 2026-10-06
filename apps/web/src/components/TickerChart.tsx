@@ -3,19 +3,34 @@ import {
   AreaSeries,
   CandlestickSeries,
   ColorType,
+  CrosshairMode,
   HistogramSeries,
   LineSeries,
   createChart,
   createSeriesMarkers,
   type IChartApi,
+  type ISeriesApi,
   type SeriesMarker,
+  type SeriesType,
   type Time,
 } from 'lightweight-charts'
 import type { ChartRow } from '../types'
 
+export type Overlay = 'bb' | 'dc20' | 'dc100' | 'ichimoku' | 'stop' | 'markers'
+export type Period = '1M' | '3M' | '6M' | '1Y' | 'ALL'
+
+const PERIOD_SESSIONS: Record<Period, number | null> = { '1M': 21, '3M': 63, '6M': 126, '1Y': 252, ALL: null }
+
 interface Props {
-  ticker: string
   rows: ChartRow[]
+  theme: string
+  overlays: Record<Overlay, boolean>
+  period: Period
+  onHover: (row: ChartRow | null) => void
+}
+
+function cssVar(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
 // Mirrors chart_builder.py's overlay set as closely as a JS charting lib reasonably allows:
@@ -23,29 +38,53 @@ interface Props {
 // 2. lightweight-charts has no "fill between two arbitrary lines" primitive (unlike Plotly's
 // fill="tonexty"), so the Ichimoku cloud is drawn as two plain lines (Senkou A/B) rather than
 // a shaded band -- a deliberate v1 simplification, not a bug.
-export function TickerChart({ ticker, rows }: Props) {
+//
+// Candle colours follow the Korean brokerage convention (rising = red, falling = blue) and are
+// read from the CSS theme tokens, so the chart is rebuilt when the theme changes.
+export function TickerChart({ rows, theme, overlays, period, onHover }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const overlayRef = useRef<Partial<Record<Overlay, ISeriesApi<SeriesType>[]>>>({})
+  const markersRef = useRef<{ setMarkers: (m: SeriesMarker<Time>[]) => void; all: SeriesMarker<Time>[] } | null>(null)
+  const hoverRef = useRef(onHover)
+  hoverRef.current = onHover
 
   useEffect(() => {
     const container = containerRef.current
     if (!container || rows.length === 0) return
 
-    const chart: IChartApi = createChart(container, {
-      height: 640,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#333' },
-      grid: { vertLines: { color: 'rgba(150,150,150,0.15)' }, horzLines: { color: 'rgba(150,150,150,0.15)' } },
+    const up = cssVar('--up')
+    const down = cssVar('--down')
+    const text = cssVar('--text-3')
+    const grid = cssVar('--chart-grid')
+    const compact = container.clientWidth < 600
+
+    const chart = createChart(container, {
+      height: compact ? 520 : 620,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: text,
+        fontSize: 11,
+        fontFamily: getComputedStyle(document.body).fontFamily,
+        attributionLogo: false,
+        panes: { separatorColor: grid, separatorHoverColor: grid },
+      },
+      grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+      crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false },
+      timeScale: { borderVisible: false, rightOffset: 3 },
+      localization: { locale: 'ko-KR' },
     })
+    chartRef.current = chart
 
     chart.addPane()
     chart.addPane()
     const PANE_PRICE = 0
     const PANE_VOLUME = 1
     const PANE_ATR = 2
-    chart.panes()[PANE_PRICE].setHeight(360)
-    chart.panes()[PANE_VOLUME].setHeight(140)
-    chart.panes()[PANE_ATR].setHeight(140)
+    chart.panes()[PANE_PRICE].setHeight(compact ? 340 : 420)
+    chart.panes()[PANE_VOLUME].setHeight(90)
+    chart.panes()[PANE_ATR].setHeight(90)
 
     const times = rows.map((r) => r.Date as Time)
     const toLineData = (values: (number | null)[]) =>
@@ -55,55 +94,92 @@ export function TickerChart({ ticker, rows }: Props) {
 
     const candleSeries = chart.addSeries(
       CandlestickSeries,
-      { upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' },
+      { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down },
       PANE_PRICE,
     )
-    candleSeries.setData(
-      rows.map((r) => ({ time: r.Date as Time, open: r.Open, high: r.High, low: r.Low, close: r.Close })),
-    )
+    candleSeries.setData(rows.map((r) => ({ time: r.Date as Time, open: r.Open, high: r.High, low: r.Low, close: r.Close })))
 
-    const addLine = (values: (number | null)[], color: string, dashed = false) => {
-      const series = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: dashed ? 2 : 0, lastValueVisible: false, priceLineVisible: false }, PANE_PRICE)
+    const groups: Partial<Record<Overlay, ISeriesApi<SeriesType>[]>> = {}
+    const addLine = (overlay: Overlay, values: (number | null)[], color: string, dashed = false) => {
+      const series = chart.addSeries(
+        LineSeries,
+        { color, lineWidth: 1, lineStyle: dashed ? 2 : 0, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false },
+        PANE_PRICE,
+      )
       series.setData(toLineData(values))
-      return series
+      ;(groups[overlay] ??= []).push(series)
     }
-    addLine(rows.map((r) => r.BB_Upper), 'rgba(120,144,156,0.5)')
-    addLine(rows.map((r) => r.BB_Lower), 'rgba(120,144,156,0.5)')
-    addLine(rows.map((r) => r.BB_Middle), 'rgba(84,110,122,0.6)', true)
-    addLine(rows.map((r) => r.Donchian_Upper_20), '#42a5f5', true)
-    addLine(rows.map((r) => r.Donchian_Lower_20), '#42a5f5', true)
-    addLine(rows.map((r) => r.Donchian_Upper_100), '#7e57c2', true)
-    addLine(rows.map((r) => r.Donchian_Lower_100), '#7e57c2', true)
-    addLine(rows.map((r) => r.Trailing_Stop), '#ef5350')
-    addLine(rows.map((r) => r.Ichimoku_SenkouA), 'rgba(239,83,80,0.6)')
-    addLine(rows.map((r) => r.Ichimoku_SenkouB), 'rgba(66,165,245,0.6)')
+    addLine('bb', rows.map((r) => r.BB_Upper), 'rgba(148,163,184,0.55)')
+    addLine('bb', rows.map((r) => r.BB_Lower), 'rgba(148,163,184,0.55)')
+    addLine('bb', rows.map((r) => r.BB_Middle), 'rgba(148,163,184,0.75)', true)
+    addLine('dc20', rows.map((r) => r.Donchian_Upper_20), '#22c3a6', true)
+    addLine('dc20', rows.map((r) => r.Donchian_Lower_20), '#22c3a6', true)
+    addLine('dc100', rows.map((r) => r.Donchian_Upper_100), '#a78bfa', true)
+    addLine('dc100', rows.map((r) => r.Donchian_Lower_100), '#a78bfa', true)
+    addLine('stop', rows.map((r) => r.Trailing_Stop), '#ffb020')
+    addLine('ichimoku', rows.map((r) => r.Ichimoku_SenkouA), 'rgba(244,114,182,0.6)')
+    addLine('ichimoku', rows.map((r) => r.Ichimoku_SenkouB), 'rgba(56,189,248,0.6)')
+    overlayRef.current = groups
 
-    const markers: SeriesMarker<Time>[] = []
+    const allMarkers: SeriesMarker<Time>[] = []
     rows.forEach((r) => {
-      if (r.Buy_Trigger) markers.push({ time: r.Date as Time, position: 'belowBar', color: '#2e7d32', shape: 'arrowUp', text: '매수' })
-      if (r.Sell_Trigger) markers.push({ time: r.Date as Time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: '매도' })
+      if (r.Buy_Trigger) allMarkers.push({ time: r.Date as Time, position: 'belowBar', color: up, shape: 'arrowUp' })
+      if (r.Sell_Trigger) allMarkers.push({ time: r.Date as Time, position: 'aboveBar', color: down, shape: 'arrowDown' })
     })
-    createSeriesMarkers(candleSeries, markers)
+    const markerPlugin = createSeriesMarkers(candleSeries, allMarkers)
+    markersRef.current = { setMarkers: (m) => markerPlugin.setMarkers(m), all: allMarkers }
 
-    const volumeSeries = chart.addSeries(HistogramSeries, { color: '#90a4ae', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false }, PANE_VOLUME)
+    const volumeSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false }, PANE_VOLUME)
     volumeSeries.setData(
-      rows.map((r) => ({ time: r.Date as Time, value: r.Volume, color: r.Volume_Surge ? '#ff7043' : '#90a4ae' })),
+      rows.map((r, i) => {
+        const rising = r.Close >= (i > 0 ? rows[i - 1].Close : r.Open)
+        const base = rising ? up : down
+        return { time: r.Date as Time, value: r.Volume, color: r.Volume_Surge ? '#ffb020' : `${base}66` }
+      }),
     )
 
-    const atrSeries = chart.addSeries(AreaSeries, { lineColor: '#ffa726', topColor: 'rgba(255,167,38,0.2)', bottomColor: 'rgba(255,167,38,0.0)', lastValueVisible: false, priceLineVisible: false }, PANE_ATR)
+    const atrSeries = chart.addSeries(
+      AreaSeries,
+      { lineColor: '#ffb020', lineWidth: 1, topColor: 'rgba(255,176,32,0.22)', bottomColor: 'rgba(255,176,32,0)', lastValueVisible: false, priceLineVisible: false },
+      PANE_ATR,
+    )
     atrSeries.setData(toLineData(rows.map((r) => r.ATR)))
 
-    chart.timeScale().fitContent()
+    const byTime = new Map(rows.map((r) => [r.Date, r]))
+    chart.subscribeCrosshairMove((param) => {
+      hoverRef.current(param.time ? (byTime.get(String(param.time)) ?? null) : null)
+    })
 
-    const resize = () => chart.applyOptions({ width: container.clientWidth })
-    resize()
-    window.addEventListener('resize', resize)
+    const observer = new ResizeObserver(() => chart.applyOptions({ width: container.clientWidth }))
+    observer.observe(container)
 
     return () => {
-      window.removeEventListener('resize', resize)
+      observer.disconnect()
       chart.remove()
+      chartRef.current = null
+      overlayRef.current = {}
+      markersRef.current = null
     }
-  }, [ticker, rows])
+  }, [rows, theme])
 
-  return <div ref={containerRef} style={{ width: '100%' }} />
+  useEffect(() => {
+    for (const [key, series] of Object.entries(overlayRef.current) as [Overlay, ISeriesApi<SeriesType>[]][]) {
+      series.forEach((s) => s.applyOptions({ visible: overlays[key] }))
+    }
+    const markers = markersRef.current
+    if (markers) markers.setMarkers(overlays.markers ? markers.all : [])
+  }, [overlays, rows, theme])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const sessions = PERIOD_SESSIONS[period]
+    if (sessions == null || sessions >= rows.length) {
+      chart.timeScale().fitContent()
+    } else {
+      chart.timeScale().setVisibleLogicalRange({ from: rows.length - sessions, to: rows.length + 2 })
+    }
+  }, [period, rows, theme])
+
+  return <div ref={containerRef} className="chart-canvas" />
 }
