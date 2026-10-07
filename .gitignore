@@ -33,3 +33,6 @@ build/
 dist/
 secrets/
 .streamlit/secrets.toml
+
+# Local editor settings
+.vscode/

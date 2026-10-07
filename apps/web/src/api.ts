@@ -5,12 +5,21 @@ import type { ChartRow, ReportsIndex, SignalsAssetClass, SignalsSp500, Universe 
 // against a local docs/data/ copy without any extra proxy config.
 const DATA_BASE = `${import.meta.env.BASE_URL}data`
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${DATA_BASE}/${path}`)
-  if (!res.ok) {
-    throw new Error(`${path}: ${res.status} ${res.statusText}`)
-  }
-  return res.json() as Promise<T>
+// The header ticker tape, watchlist sparklines and chart tab all read the same files, so each
+// path is fetched once per page load and the promise is shared. Failed fetches are evicted so a
+// later mount can retry.
+const cache = new Map<string, Promise<unknown>>()
+
+function fetchJson<T>(path: string): Promise<T> {
+  const cached = cache.get(path)
+  if (cached) return cached as Promise<T>
+  const promise = fetch(`${DATA_BASE}/${path}`).then((res) => {
+    if (!res.ok) throw new Error(`${path}: ${res.status} ${res.statusText}`)
+    return res.json() as Promise<T>
+  })
+  promise.catch(() => cache.delete(path))
+  cache.set(path, promise)
+  return promise
 }
 
 export const fetchSignalsAssetClass = () => fetchJson<SignalsAssetClass>('signals_asset_class.json')
