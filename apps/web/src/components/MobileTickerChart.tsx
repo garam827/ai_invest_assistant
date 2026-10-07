@@ -29,6 +29,12 @@ interface Props {
   onHover: (row: ChartRow | null) => void
 }
 
+// Size the chart to the window so price, volume and ATR fit on screen together with the quote
+// header and bottom tab bar; ~300px covers the app bar, chart toolbar and tab bar.
+function chartHeight(): number {
+  return Math.round(Math.min(560, Math.max(300, window.innerHeight - 300)))
+}
+
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
@@ -57,10 +63,8 @@ export function MobileTickerChart({ rows, theme, overlays, period, onHover }: Pr
     const down = cssVar('--down')
     const text = cssVar('--text-3')
     const grid = cssVar('--chart-grid')
-    const compact = container.clientWidth < 600
-
     const chart = createChart(container, {
-      height: compact ? 520 : 620,
+      height: chartHeight(),
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: text,
@@ -82,9 +86,9 @@ export function MobileTickerChart({ rows, theme, overlays, period, onHover }: Pr
     const PANE_PRICE = 0
     const PANE_VOLUME = 1
     const PANE_ATR = 2
-    chart.panes()[PANE_PRICE].setHeight(compact ? 340 : 420)
-    chart.panes()[PANE_VOLUME].setHeight(90)
-    chart.panes()[PANE_ATR].setHeight(90)
+    chart.panes()[PANE_PRICE].setStretchFactor(4)
+    chart.panes()[PANE_VOLUME].setStretchFactor(1)
+    chart.panes()[PANE_ATR].setStretchFactor(1)
 
     const times = rows.map((r) => r.Date as Time)
     const toLineData = (values: (number | null)[]) =>
@@ -150,11 +154,14 @@ export function MobileTickerChart({ rows, theme, overlays, period, onHover }: Pr
       hoverRef.current(param.time ? (byTime.get(String(param.time)) ?? null) : null)
     })
 
-    const observer = new ResizeObserver(() => chart.applyOptions({ width: container.clientWidth }))
+    const resize = () => chart.applyOptions({ width: container.clientWidth, height: chartHeight() })
+    const observer = new ResizeObserver(resize)
     observer.observe(container)
+    window.addEventListener('resize', resize)
 
     return () => {
       observer.disconnect()
+      window.removeEventListener('resize', resize)
       chart.remove()
       chartRef.current = null
       overlayRef.current = {}

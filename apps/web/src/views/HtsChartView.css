@@ -100,7 +100,9 @@
   padding: 0;
   overflow-y: auto;
   flex: 1;
-  max-height: 720px;
+  /* Keep the watchlist no taller than the chart column on screen. */
+  max-height: calc(100dvh - 300px);
+  min-height: 240px;
 }
 
 .hts-watch-list li {
@@ -289,7 +291,9 @@
 /* Chart */
 .hts-chart {
   position: relative;
-  height: 620px;
+  /* Fit the chart inside the window below the app bar, quote header and toolbar, and above
+     the bottom tab bar, so the whole price/volume/ATR stack is visible without scrolling. */
+  height: clamp(300px, calc(100dvh - 290px), 620px);
 }
 .hts-chart-canvas {
   position: absolute;
@@ -445,9 +449,10 @@
   }
   .hts-watch-list {
     max-height: 200px;
+    min-height: 0;
   }
   .hts-chart {
-    height: 460px;
+    height: clamp(280px, calc(100dvh - 300px), 460px);
   }
   .hts-legend {
     right: 60px;
