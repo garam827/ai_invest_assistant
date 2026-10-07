@@ -4,9 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/ai_invest_assistant/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0d11" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
     <title>AI 투자 어시스턴트 — 오늘의 시그널</title>
-    <script type="module" crossorigin src="/ai_invest_assistant/assets/index-lrvDBSYn.js"></script>
-    <link rel="stylesheet" crossorigin href="/ai_invest_assistant/assets/index-P1VkTdWu.css">
+    <script>
+      // Apply the saved theme before first paint to avoid a dark/light flash.
+      try {
+        var t = localStorage.getItem('invest-assistant-theme')
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t
+      } catch (e) {}
+    </script>
+    <script type="module" crossorigin src="/ai_invest_assistant/assets/index-zgjZpFEi.js"></script>
+    <link rel="stylesheet" crossorigin href="/ai_invest_assistant/assets/index-CIyM7fJ2.css">
   </head>
   <body>
     <div id="root"></div>
