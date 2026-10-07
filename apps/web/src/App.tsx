@@ -7,10 +7,17 @@ import { ChartView } from './views/ChartView'
 import { ReportsView } from './views/ReportsView'
 
 type Tab = 'signals' | 'chart' | 'reports'
+const TABS: readonly Tab[] = ['signals', 'chart', 'reports']
 type Theme = 'dark' | 'light'
 
 const THEME_KEY = 'invest-assistant-theme'
 const DEFAULT_TICKER = 'SPY'
+
+// The URL hash (#chart, #reports) selects the tab so each view can be linked directly.
+const tabFromHash = (): Tab => {
+  const hash = window.location.hash.slice(1)
+  return (TABS as readonly string[]).includes(hash) ? (hash as Tab) : 'signals'
+}
 
 function readTheme(): Theme {
   try {
@@ -61,7 +68,7 @@ function TickerTape({ onSelect }: { onSelect: (ticker: string) => void }) {
 }
 
 function App() {
-  const [tab, setTab] = useState<Tab>('signals')
+  const [tab, setTabState] = useState<Tab>(tabFromHash)
   const [chartTicker, setChartTicker] = useState(DEFAULT_TICKER)
   const [theme, setTheme] = useState<Theme>(readTheme)
   const { data: assetClass } = useAsync(fetchSignalsAssetClass, 'asset-class')
@@ -75,14 +82,25 @@ function App() {
     }
   }, [theme])
 
+  useEffect(() => {
+    const onHash = () => setTabState(tabFromHash())
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  const setTab = useCallback((next: Tab) => {
+    setTabState(next)
+    history.replaceState(null, '', next === 'signals' ? window.location.pathname : `#${next}`)
+  }, [])
+
   const openChart = useCallback((ticker: string) => {
     setChartTicker(ticker)
     setTab('chart')
     window.scrollTo({ top: 0 })
-  }, [])
+  }, [setTab])
 
   return (
-    <div className="app">
+    <div className={tab === 'chart' ? 'app wide' : 'app'}>
       <header className="appbar">
         <div className="appbar-row">
           <div className="brand">

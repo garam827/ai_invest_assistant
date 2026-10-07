@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.67](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.71](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
@@ -43,7 +43,7 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - LLM/news inputs are required for their respective calls; preserve clear configuration errors and the caller's rule-based fallback.
 - `SKIP_LLM_AND_NEWS` skips paid news/LLM in manual runs. `IS_TEST_REPORT` suffixes both recommendation and report filenames, without changing real signal history or static latest data.
 - Test reports do have separate public HTML files. Telegram test behavior remains defined by the existing pipeline; tests must mock notifications.
-- Historical `as_of` runs do not overwrite current JSON or send Telegram.
+- Historical `as_of` runs do not overwrite current JSON or send Telegram, and their reports omit present-only sections and truncate charts at `as_of`.
 - Daily batch recommendation scope is representative assets. Individual S&P 500 mechanical signals remain available to React, but are omitted from report HTML and copied Markdown.
 - Generate one portfolio overview in the recommendation pipeline and pass it to both HTML and static JSON; rendering/export modules must not call the LLM.
 - Escape external LLM/news strings in HTML. Preserve Plotly HTML charts; do not reintroduce headless PNG rendering for Telegram.

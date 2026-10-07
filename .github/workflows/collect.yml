@@ -25,7 +25,11 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    # First pass ~45-60min + up to 3 retries 30min apart; leave headroom under the 6h cap.
+    timeout-minutes: 330
     env:
+      COLLECTION_RUN_ATTEMPTS: ${{ vars.COLLECTION_RUN_ATTEMPTS || '4' }}
+      COLLECTION_RUN_RETRY_DELAY_SEC: ${{ vars.COLLECTION_RUN_RETRY_DELAY_SEC || '1800' }}
       COLLECTION_WORKERS: ${{ vars.COLLECTION_WORKERS || '3' }}
       COLLECTION_RETRY_ROUNDS: ${{ vars.COLLECTION_RETRY_ROUNDS || '1' }}
       COLLECTION_RETRY_DELAY_SEC: ${{ vars.COLLECTION_RETRY_DELAY_SEC || '30' }}
@@ -47,5 +51,30 @@ jobs:
       - name: Verify data-quality regression checks
         run: python -m unittest discover -s tests -v
 
-      - name: Sync S&P 500 + asset-class OHLCV data
-        run: python -m invest_assistant.pipelines.collect update
+      # Yahoo sometimes serves the latest session as an all-NaN placeholder for a few hours
+      # after the close; validation rightly rejects it and the batch fails. Retrying within
+      # this same run (rather than dispatching a new one) keeps recommend.yml's workflow_run
+      # chain intact: it fires once, on this run's final conclusion. Collection is per-ticker
+      # incremental, so a retry only refetches what is still missing. Retries stop once US
+      # market hours approach (13:00 UTC) so an intraday bar can never be saved as a close.
+      - name: Sync S&P 500 + asset-class OHLCV data (auto-retry on failure)
+        run: |
+          attempt=1
+          while true; do
+            echo "Collection attempt ${attempt}/${COLLECTION_RUN_ATTEMPTS}"
+            if python -m invest_assistant.pipelines.collect update; then
+              exit 0
+            fi
+            if [ "${attempt}" -ge "${COLLECTION_RUN_ATTEMPTS}" ]; then
+              echo "::error::Collection failed after ${attempt} attempts"
+              exit 1
+            fi
+            resume_hour=$(date -u -d "+${COLLECTION_RUN_RETRY_DELAY_SEC} seconds" +%-H)
+            if [ "${resume_hour}" -ge 13 ] && [ "${resume_hour}" -lt 22 ]; then
+              echo "::error::Next retry would start at ${resume_hour}h UTC, inside US market hours; giving up"
+              exit 1
+            fi
+            echo "::warning::Collection attempt ${attempt} failed; retrying in ${COLLECTION_RUN_RETRY_DELAY_SEC}s"
+            sleep "${COLLECTION_RUN_RETRY_DELAY_SEC}"
+            attempt=$((attempt + 1))
+          done

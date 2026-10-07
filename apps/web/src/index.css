@@ -1207,3 +1207,10 @@ h2 {
     padding: 10px 12px;
   }
 }
+
+/* The HTS chart screen (>= 900px) uses the full desktop width. */
+@media (min-width: 900px) {
+  .app.wide {
+    max-width: 1480px;
+  }
+}
