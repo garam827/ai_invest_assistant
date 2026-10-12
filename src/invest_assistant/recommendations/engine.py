@@ -29,11 +29,6 @@ RECOMMENDATIONS_FILENAME_PREFIX = "_recommendations_"
 # table's per-ticker action columns. Real dates only — see run_asset_class_recommendations.
 SIGNAL_HISTORY_FILENAME = "_signal_history.json"
 
-# Written by backtest.py's `python backtest.py full-universe` (manual/local, see
-# investment_assistant_spec.md [기능 7]) -- filename must stay in sync with that script's own
-# BACKTEST_SUMMARY_FILENAME constant. Read-only here; this cron path never runs a backtest.
-BACKTEST_SUMMARY_FILENAME = "_backtest_summary.json"
-
 
 def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
@@ -46,8 +41,8 @@ def _recent_signal_history(history: dict, days: int = 20) -> dict:
     view does.
 
     Filters out weekend dates before counting, not just after — `history`'s date axis
-    includes Saturday/Sunday entries because BTC-USD trades every day, but the other 11 of
-    12 ASSET_CLASS_TICKERS don't, so a plain "last N recorded dates" would waste a chunk of
+    includes Saturday/Sunday entries because BTC-USD/ETH-USD trade every day, but the other
+    ASSET_CLASS_TICKERS don't, so a plain "last N recorded dates" would waste a chunk of
     the row budget on weekend rows that are blank ("-") for almost every column. Default 20
     matches signal_engine's own 20-day Donchian window (DC20)."""
     weekday_dates = [date for date in history if pd.Timestamp(date).dayofweek < 5]
@@ -107,8 +102,8 @@ def backfill_signal_history_deep(
     {date: {ticker: action}} accumulator is saved) — this is a manual/occasional research
     operation, not part of the daily cron, so it makes real yfinance calls (throttled via
     config.YFINANCE_REQUEST_DELAY_SEC like every other bulk fetch in this codebase).
-    2007-01-01 default covers 11 of the 12 ASSET_CLASS_TICKERS in full; only BTC-USD (from
-    2014-09-17) is shorter no matter the start date used here, since yfinance simply has no
+    2007-01-01 default covers every ASSET_CLASS_TICKERS entry in full except the crypto pair:
+    BTC-USD (from 2014-09-17) and ETH-USD (from 2017-11-09) are shorter no matter the start date used here, since yfinance simply has no
     earlier data for it (CPER, the previous 2011-11-15 straggler, was replaced by DBB in
     v3.38 specifically because DBB starts 2007-01-05, closing that gap).
     """
@@ -338,7 +333,7 @@ def get_recommendation_for_ticker(
 def get_sp500_signal_summary(drive_db: DriveDB, as_of: str | None = None) -> list[dict]:
     """Mechanical-only 매수/매도 pass over every active S&P 500 ticker (user request) — NOT
     news/LLM-enriched like get_recommendation_for_ticker's ASSET_CLASS_TICKERS flow, which
-    stays 12-ticker-only specifically to keep Exa/LLM usage bounded (see CLAUDE.md).
+    stays ASSET_CLASS_TICKERS-only specifically to keep Exa/LLM usage bounded (see CLAUDE.md).
     This only calls signal_engine.get_mechanical_action on each ticker's already-collected
     Drive OHLCV (collect.yml refreshes the whole active universe daily) — no new external
     API calls, so running it across 500+ tickers costs nothing but Drive reads.
@@ -402,8 +397,8 @@ def _resolve_report_date(results: dict) -> str:
 
     Anchored on SPY specifically (falling back to any other result, then to today if `results`
     is empty) since it's the most standard US-market trading-day proxy in ASSET_CLASS_TICKERS
-    -- every other weekday-only ticker should share its date; only BTC-USD (which trades
-    weekends) might not.
+    -- every other weekday-only ticker should share its date; only the crypto tickers (which
+    trade weekends) might not.
     """
     if "SPY" in results:
         return str(results["SPY"]["date"])[:10]
@@ -443,3 +438,42 @@ def get_macro_issues_briefing(drive_db: DriveDB) -> dict | None:
 
     text = llm_briefing.generate_macro_issues_briefing(news_items)
     return {"text": text, "news": news_items}
+
+
+def get_crypto_special_briefing(drive_db: DriveDB) -> dict | None:
+    """Keyword-focused crypto news (news_fetcher.CRYPTO_NEWS_QUERIES: RWA, 비트마인) distilled by
+    the LLM for report_builder's crypto special section. Same shape and failure behavior as
+    get_macro_issues_briefing: one Exa search per keyword, merged and cached for the day under
+    news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY (each item tagged with its `keyword`), None when
+    config.SKIP_LLM_AND_NEWS is set or no keyword returned news. Advisory only.
+    """
+    if config.SKIP_LLM_AND_NEWS:
+        return None
+
+    news_items = news_fetcher.get_cached_news(drive_db, news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY)
+    if news_items is None:
+        news_items = []
+        seen_links: set[str] = set()
+        for keyword, query in news_fetcher.CRYPTO_NEWS_QUERIES.items():
+            for item in news_fetcher.fetch_ticker_news_exa(
+                news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY,
+                query=query,
+                max_items=config.CRYPTO_NEWS_MAX_ITEMS_PER_KEYWORD,
+                lookback_days=config.CRYPTO_NEWS_LOOKBACK_DAYS,
+            ):
+                key = item.get("link") or item.get("title")
+                if key in seen_links:
+                    continue
+                seen_links.add(key)
+                news_items.append({**item, "keyword": keyword})
+        news_fetcher.archive_news(drive_db, news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY, news_items)
+
+    if not news_items:
+        return None
+
+    news_by_keyword = {
+        keyword: [item for item in news_items if item.get("keyword") == keyword]
+        for keyword in news_fetcher.CRYPTO_NEWS_QUERIES
+    }
+    text = llm_briefing.generate_crypto_special_briefing(news_by_keyword)
+    return {"text": text, "keywords": list(news_fetcher.CRYPTO_NEWS_QUERIES), "news": news_items}

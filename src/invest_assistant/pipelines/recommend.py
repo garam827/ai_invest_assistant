@@ -13,12 +13,12 @@ from invest_assistant.publishing import static as static_export
 from invest_assistant.publishing import telegram as telegram_notifier
 from invest_assistant.recommendations import briefing as llm_briefing
 from invest_assistant.recommendations.engine import (
-    BACKTEST_SUMMARY_FILENAME,
     RECOMMENDATIONS_FILENAME_PREFIX,
     SIGNAL_HISTORY_FILENAME,
     _actions_from_results,
     _recent_signal_history,
     _resolve_report_date,
+    get_crypto_special_briefing,
     get_macro_issues_briefing,
     get_recommendation_for_ticker,
     get_sp500_signal_summary,
@@ -44,8 +44,8 @@ def run_asset_class_recommendations(
     date (skipping _resolve_report_date's SPY-anchored inference, since the caller already
     knows exactly which day this is). For recovering a specific lost/mislabeled past day
     (see _resolve_report_date) -- the normal daily cron never sets this. Sections that can
-    only describe the present (paper positions, backtest summary, live macro snapshot, macro
-    news briefing, LLM overview) are omitted from a backfilled report, and its charts are
+    only describe the present (paper positions, live macro snapshot, macro news briefing,
+    crypto special section, LLM overview) are omitted from a backfilled report, and its charts are
     truncated at `as_of`.
     """
     tickers = tickers if tickers is not None else instrument_universe.ASSET_CLASS_TICKERS
@@ -125,23 +125,12 @@ def run_asset_class_recommendations(
         history_for_table = {}
 
     # S&P 500 mechanical-only signals (user request) — computed fresh every run (cheap, no
-    # LLM/news, see get_sp500_signal_summary's docstring), unlike backtest_summary below
-    # which is a manual/local artifact this cron only ever reads.
+    # LLM/news, see get_sp500_signal_summary's docstring).
     try:
         sp500_signals = get_sp500_signal_summary(drive_db, as_of=as_of)
     except Exception:
         logger.exception("Failed to compute S&P 500 signal summary (report will omit this section)")
         sp500_signals = []
-
-    # Full-universe backtest summary (backtest.py's `python backtest.py full-universe`,
-    # manual/local — see investment_assistant_spec.md [기능 7]) — read-only. Missing/failed
-    # load just omits that report section, same as sp500_signals above.
-    backtest_summary = None
-    if as_of is None:
-        try:
-            backtest_summary = drive_db.load_json(BACKTEST_SUMMARY_FILENAME)
-        except Exception:
-            logger.exception("Failed to load backtest summary (report will omit this section)")
 
     # VIX + short/mid/long US Treasury yield macro-context snapshot (user request) — fetched
     # fresh live via yfinance every run, not stored to Drive/run through signal_engine (see
@@ -164,6 +153,15 @@ def run_asset_class_recommendations(
         except Exception:
             logger.exception("Failed to generate macro issues briefing (report will omit this section)")
 
+    # Crypto special section (RWA·비트마인 keyword news + LLM digest) -- same optional/
+    # present-only handling as macro_issues above.
+    crypto_special = None
+    if as_of is None:
+        try:
+            crypto_special = get_crypto_special_briefing(drive_db)
+        except Exception:
+            logger.exception("Failed to generate crypto special briefing (report will omit this section)")
+
     overview = ""
     if results and as_of is None and not config.SKIP_LLM_AND_NEWS:
         try:
@@ -180,9 +178,9 @@ def run_asset_class_recommendations(
                 paper_positions=open_positions,
                 signal_history=recent_history,
                 sp500_signals=sp500_signals,
-                backtest_summary=backtest_summary,
                 macro_snapshot=macro_snapshot,
                 macro_issues=macro_issues,
+                crypto_special=crypto_special,
                 overview=overview,
                 as_of=as_of,
             )

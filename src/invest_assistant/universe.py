@@ -21,6 +21,12 @@ ASSET_CLASS_TICKERS = {
         "description": "비트코인 현물 가격(USD 기준)",
         "news_query": "bitcoin price outlook analysis",
     },
+    "ETH-USD": {
+        "label": "이더리움 (Ethereum)",
+        "category": "암호화폐",
+        "description": "이더리움 현물 가격(USD 기준)",
+        "news_query": "ethereum price outlook analysis",
+    },
     "GLD": {
         "label": "금 (Gold)",
         "category": "귀금속",

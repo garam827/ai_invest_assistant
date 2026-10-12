@@ -56,7 +56,7 @@ def _write_json(path: str, data) -> None:
 
 def export_signals_json(results: dict, sp500_signals: list[dict], signal_history: dict | None = None, overview: str = "") -> None:
     """`results`: recommendation_engine.run_asset_class_recommendations's per-ticker output for
-    the 12 ASSET_CLASS_TICKERS -- already carries the news/LLM narrative the cron computed once
+    the 13 ASSET_CLASS_TICKERS -- already carries the news/LLM narrative the cron computed once
     (results[ticker]['text']/['news']), reused as-is, never re-fetched here (same "don't
     re-call Exa/LLM for data already computed" rule report_builder/telegram_notifier follow).
     `sp500_signals`: recommendation_engine.get_sp500_signal_summary's output -- mechanical-only
@@ -174,7 +174,7 @@ def export_chart_data(drive_db: DriveDB, tickers: list[str] | None = None) -> No
     the Streamlit/report chart actually draws. A single ticker's failure is skipped, same
     convention as every other bulk per-ticker loop in this codebase (data_fetcher, get_sp500_signal_summary).
 
-    `tickers=None` (the default) covers the full chart universe: the 12 ASSET_CLASS_TICKERS
+    `tickers=None` (the default) covers the full chart universe: the 13 ASSET_CLASS_TICKERS
     plus every active S&P 500 ticker from _universe.json -- same 515-ticker set
     get_sp500_signal_summary iterates, computed independently here (a second Drive-read pass)
     since this needs the full signal series, not just the latest row.

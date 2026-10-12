@@ -9,7 +9,7 @@ from invest_assistant import universe as instrument_universe
 
 def render():
     st.header("대표 자산군별 추세추종 분석")
-    st.caption("S&P 500·비트코인·금·미국 국채·원자재(원유/천연가스/농산물/구리 등)를 유동성 높은 ETF(또는 현물)로 대신 추적해 동일한 Donchian/ATR 규칙을 적용합니다.")
+    st.caption("S&P 500·비트코인·이더리움·금·미국 국채·원자재(원유/천연가스/농산물/구리 등)를 유동성 높은 ETF(또는 현물)로 대신 추적해 동일한 Donchian/ATR 규칙을 적용합니다.")
 
     if "selected_asset_ticker" not in st.session_state:
         st.session_state.selected_asset_ticker = None

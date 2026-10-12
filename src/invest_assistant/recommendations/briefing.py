@@ -75,6 +75,21 @@ MACRO_ISSUES_SYSTEM_PROMPT = (
 )
 
 
+CRYPTO_SPECIAL_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 오늘 수집된 암호화폐 관련 뉴스 기사들이며, 주요 키워드는 RWA(실물자산 토큰화)와 "
+    "비트마인(BitMine Immersion Technologies, BMNR — 이더리움을 대규모로 보유하는 상장사)이다. "
+    "키워드별로 나눠 정리하라: 각 키워드마다 오늘 기사에서 확인되는 핵심 소식 1~3개를 번호로 적고, "
+    "(1) 무슨 일인지 한 줄로, (2) 장기 추세 관점에서 왜 지켜볼 만한지(제도·자금 흐름·이더리움/비트코인 "
+    "수급과의 연결 등)를 근거 기사 내용에 기반해 구체적으로 설명하라 — 기사 제목만 나열하지 마라. "
+    "단기 가격 소음이나 홍보성 기사는 걸러내라. 특정 자산의 향후 가격이나 방향을 예측·전망하지 말고, "
+    "단정적인 표현도 쓰지 마라. 이 정리는 어떤 종목의 매수/HOLD/매도 판정이나 제안 수량도 바꾸지 않는다. "
+    "어떤 키워드에 관련 기사가 없다면 그 사실만 담백하게 언급하면 된다. "
+    "마크다운 문법(**, ###, ---, 글머리 기호 등)은 전혀 쓰지 말고, 키워드 제목·번호·줄바꿈만으로 "
+    "구분되는 평문으로 작성하라 — 이 텍스트는 그대로(마크다운 렌더링 없이) 리포트에 삽입된다."
+)
+
+
 def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
     if not news_items:
         return f"[{ticker}] 관련 금일 뉴스 없음."
@@ -205,3 +220,13 @@ def generate_macro_issues_briefing(news_items: list[dict]) -> str:
     """
     prompt = _format_news_for_prompt("해외 매크로", news_items) + "\n\n위 뉴스를 바탕으로 오늘 챙겨야 할 이슈를 정리하라."
     return _call_chat(MACRO_ISSUES_SYSTEM_PROMPT, prompt)
+
+
+def generate_crypto_special_briefing(news_by_keyword: dict[str, list[dict]]) -> str:
+    """Distill keyword-focused crypto news (RWA, BitMine — see news_fetcher.CRYPTO_NEWS_QUERIES)
+    into report_builder's crypto special section. Advisory/context only, same as
+    generate_macro_issues_briefing — never changes any ticker's mechanical action.
+    """
+    blocks = [_format_news_for_prompt(keyword, items) for keyword, items in news_by_keyword.items()]
+    prompt = "\n\n".join(blocks) + "\n\n위 뉴스를 키워드별로 정리하라."
+    return _call_chat(CRYPTO_SPECIAL_SYSTEM_PROMPT, prompt)

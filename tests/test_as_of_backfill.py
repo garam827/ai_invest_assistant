@@ -50,6 +50,7 @@ class AsOfBackfillTests(unittest.TestCase):
             stack.enter_context(patch.object(recommend, "get_recommendation_for_ticker", return_value=reco))
             stack.enter_context(patch.object(recommend, "get_sp500_signal_summary", return_value=[]))
             mocks["macro_issues"] = stack.enter_context(patch.object(recommend, "get_macro_issues_briefing", return_value=None))
+            mocks["crypto_special"] = stack.enter_context(patch.object(recommend, "get_crypto_special_briefing", return_value=None))
             mocks["positions"] = stack.enter_context(patch.object(recommend.paper_trading, "load_positions", return_value=[]))
             mocks["snapshot"] = stack.enter_context(patch.object(recommend.data_fetcher, "fetch_macro_snapshot", return_value={}))
             mocks["overview"] = stack.enter_context(patch.object(recommend.llm_briefing, "generate_portfolio_overview", return_value="x"))
@@ -64,20 +65,20 @@ class AsOfBackfillTests(unittest.TestCase):
 
     def test_backfill_omits_present_only_sections(self):
         db, mocks = self._run("2026-09-09")
-        for name in ["macro_issues", "positions", "snapshot", "overview", "telegram", "export"]:
+        for name in ["macro_issues", "crypto_special", "positions", "snapshot", "overview", "telegram", "export"]:
             mocks[name].assert_not_called()
         kwargs = mocks["build"].call_args.kwargs
         self.assertEqual(kwargs["as_of"], "2026-09-09")
         self.assertEqual(kwargs["overview"], "")
-        self.assertIsNone(kwargs["backtest_summary"])
+        self.assertIsNone(kwargs["crypto_special"])
+        self.assertNotIn("backtest_summary", kwargs)
         self.assertEqual(kwargs["paper_positions"], [])
         mocks["save"].assert_called_once()
         self.assertEqual(mocks["save"].call_args.args[1], "2026-09-09")
-        self.assertNotIn("_backtest_summary.json", [c.args[0] for c in db.load_json.call_args_list])
 
     def test_daily_run_still_includes_present_sections(self):
         _, mocks = self._run(None)
-        for name in ["macro_issues", "positions", "snapshot", "overview", "telegram", "export"]:
+        for name in ["macro_issues", "crypto_special", "positions", "snapshot", "overview", "telegram", "export"]:
             mocks[name].assert_called_once()
         self.assertIsNone(mocks["build"].call_args.kwargs["as_of"])
 
