@@ -169,7 +169,7 @@ function Sp500List({ signals, onOpenChart }: { signals: Sp500Signal[]; onOpenCha
           </Chip>
         </div>
       </div>
-      <p className="note">기계적 규칙(Donchian 돌파/추세추종 청산)만으로 판정합니다. 뉴스·LLM 분석은 대표 자산군 12종에만 적용됩니다.</p>
+      <p className="note">기계적 규칙(Donchian 돌파/추세추종 청산)만으로 판정합니다. 뉴스·LLM 분석은 대표 자산군 13종에만 적용됩니다.</p>
       {visible.length === 0 ? (
         <div className="empty">{signals.length === 0 ? '오늘은 매수/매도 시그널이 발생한 S&P 500 종목이 없습니다.' : '조건에 맞는 종목이 없습니다.'}</div>
       ) : (

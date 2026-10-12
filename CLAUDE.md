@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.71](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.72](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
@@ -36,7 +36,7 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - Preserve the Mr. Serenity system prompts; they explain long-term trend evidence and filter noise, without overriding action or suggested shares.
 - Donchian windows are 20/100 days excluding today, ATR is Wilder 14, stop distance is 3 ATR, default position risk is 1%.
 - Volume surge, Bollinger Bands and Ichimoku are advisory/display inputs, never gates for mechanical actions or position sizing.
-- All 12 representative asset tickers use the same rules as individual stocks. Membership synchronization must exclude these proxies from S&P 500 delisting calculations.
+- All 13 representative asset tickers use the same rules as individual stocks. Membership synchronization must exclude these proxies from S&P 500 delisting calculations.
 - Validate OHLCV before saving/calculating. An incomplete representative-asset collection or recommendation batch must fail before publication.
 - Preserve request throttling and cache keys tied to ticker/data freshness. Every Streamlit tab executes on each rerun.
 - Collection workers own independent Drive clients; Yahoo requests share one gate and cooldown. Preserve per-ticker read/fetch/merge/save transactions and wait for every write before completing a batch. See [parallel collection](documentation/specs/parallel_collection_spec.md).
@@ -48,7 +48,8 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - Generate one portfolio overview in the recommendation pipeline and pass it to both HTML and static JSON; rendering/export modules must not call the LLM.
 - Escape external LLM/news strings in HTML. Preserve Plotly HTML charts; do not reintroduce headless PNG rendering for Telegram.
 - Paper-trading open/close operations are UI-only, never cron operations. Cron may read positions and returns.
-- Backtest/model training are manual; the daily report only reads saved backtest summaries and does not display model predictions.
+- Backtest/model training are manual; the daily report displays neither backtest summaries nor model predictions.
+- The report's crypto special section (RWA·비트마인 news + LLM digest) is advisory only, like the macro issues section; it is skipped under `SKIP_LLM_AND_NEWS` and on `as_of` runs.
 - Keep GitHub Pages `docs/data/` and `docs/reports/` paths and payload compatibility intact.
 
 ## Documentation

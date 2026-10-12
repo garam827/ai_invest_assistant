@@ -373,7 +373,7 @@ def simulate_equity_curve(
 
 
 def build_full_universe(drive_db) -> dict:
-    """instrument_universe.ASSET_CLASS_TICKERS (12) + every active S&P 500 ticker from Drive's
+    """instrument_universe.ASSET_CLASS_TICKERS (13) + every active S&P 500 ticker from Drive's
     _universe.json, in the same {ticker: {label, category, ...}} shape the rest of this
     module already expects. Uses _universe.json (not a fresh Wikipedia scrape) so the list
     matches what collect.yml/data_fetcher actually track -- delisted-aware, same sectors/

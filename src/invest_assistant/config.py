@@ -73,6 +73,12 @@ EXA_NEWS_LOOKBACK_DAYS = int(os.environ.get("EXA_NEWS_LOOKBACK_DAYS", "7"))
 MACRO_NEWS_MAX_ITEMS = int(os.environ.get("MACRO_NEWS_MAX_ITEMS", "8"))
 MACRO_NEWS_LOOKBACK_DAYS = int(os.environ.get("MACRO_NEWS_LOOKBACK_DAYS", "2"))
 
+# Crypto special section (recommendation_engine.get_crypto_special_briefing) — items per focus
+# keyword (news_fetcher.CRYPTO_NEWS_QUERIES), slightly longer lookback than macro news since
+# keyword-specific crypto coverage is sparser day to day.
+CRYPTO_NEWS_MAX_ITEMS_PER_KEYWORD = int(os.environ.get("CRYPTO_NEWS_MAX_ITEMS_PER_KEYWORD", "4"))
+CRYPTO_NEWS_LOOKBACK_DAYS = int(os.environ.get("CRYPTO_NEWS_LOOKBACK_DAYS", "3"))
+
 # LLM provider for the "Mr. Serenity" analysis (llm_briefing.py). OpenAI and OpenRouter both
 # speak the same OpenAI-compatible /chat/completions contract (identical request body and
 # `choices[0].message.content` response shape), so switching between them only changes the base

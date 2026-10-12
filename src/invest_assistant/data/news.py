@@ -27,6 +27,15 @@ MACRO_NEWS_QUERY = (
     "geopolitical risk"
 )
 
+# Same pseudo-ticker caching for the report's crypto special section
+# (recommendation_engine.get_crypto_special_briefing). One Exa query per focus keyword so
+# neither topic crowds out the other; results are merged and cached under this single key.
+CRYPTO_NEWS_ARCHIVE_KEY = "_CRYPTO_SPECIAL_"
+CRYPTO_NEWS_QUERIES = {
+    "RWA": "real world asset RWA tokenization crypto news",
+    "비트마인": "BitMine Immersion Technologies BMNR ethereum treasury news",
+}
+
 
 def fetch_ticker_news_exa(
     ticker: str,

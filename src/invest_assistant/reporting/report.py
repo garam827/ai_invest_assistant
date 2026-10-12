@@ -39,7 +39,7 @@ STYLE = """
      분석(.analysis)이 상대적으로 좁아 보인다는 피드백으로 v3.30에서 제한을 없앴고,
      교차 자산 총평(.overview)도 같은 이유로 v3.33에서 제한을 없앴다. */
   .overview { background: #f9f9f9; border-left: 4px solid #546e7a; padding: 1rem; line-height: 1.6; margin: 1rem 0 2rem; }
-  /* 정보 밀도가 높은 표(요약/모의투자/시그널 이력/S&P 500 시그널/백테스트) 공통 스타일 -- 한눈에 훑어볼 수 있도록
+  /* 정보 밀도가 높은 표(요약/모의투자/시그널 이력/S&P 500 시그널) 공통 스타일 -- 한눈에 훑어볼 수 있도록
      행 높이를 낮게 유지한다. 원래 table.summary(패딩 6px 10px)와 table.signal-history(패딩 2px 6px)
      가 서로 다른 밀도로 분리돼 있었으나, 리포트의 모든 표를 동일하게 조밀한 밀도로 맞춰달라는
      요청으로 하나의 table.dense 클래스로 통합했다(v3.44). */
@@ -71,7 +71,6 @@ STYLE = """
   .hold-chart-block h4 { margin-bottom: 0.3rem; }
   .pnl-positive { color: #2e7d32; font-weight: bold; }
   .pnl-negative { color: #c62828; font-weight: bold; }
-  .prediction-disclaimer { background: #fff8e1; border-left: 4px solid #f9a825; padding: 0.8rem 1rem; margin: 0.6rem 0; font-size: 0.85rem; color: #5d4a1a; }
   .copy-summary-bar { display: flex; align-items: center; gap: 0.8rem; margin: 1.5rem 0; padding: 0.7rem 1rem; background: #eef3f7; border: 1px solid #cfd8e3; border-radius: 6px; }
   .copy-summary-bar button { font: inherit; font-weight: bold; padding: 0.4rem 0.9rem; border: 1px solid #546e7a; border-radius: 6px; background: #fff; color: #37474f; cursor: pointer; }
   .copy-summary-bar button:hover { background: #546e7a; color: #fff; }
@@ -136,6 +135,20 @@ def _build_macro_issues_html(macro_issues: dict | None) -> str:
     news_html = _build_news_cards_html(macro_issues.get("news") or [])
     return f"<h2>오늘 챙겨야 할 해외 이슈</h2>{text_html}{news_html}"
 
+
+CRYPTO_SPECIAL_TITLE = "🪙 크립토 특별 섹션: RWA · 비트마인"
+
+
+def _build_crypto_special_html(crypto_special: dict | None) -> str:
+    """crypto_special: recommendation_engine.get_crypto_special_briefing's output -- an LLM
+    digest of keyword-focused crypto news (RWA, 비트마인) plus the news items it drew from.
+    Advisory/context only, same as _build_macro_issues_html; omitted if not given/empty.
+    """
+    if not crypto_special or not crypto_special.get("text"):
+        return ""
+    text_html = f"<div class='analysis'>{_esc(crypto_special['text'])}</div>"
+    news_html = _build_news_cards_html(crypto_special.get("news") or [])
+    return f"<h2>{CRYPTO_SPECIAL_TITLE}</h2>{text_html}{news_html}"
 
 def _build_summary_table_html(results: dict) -> str:
     """results.items()는 ASSET_CLASS_TICKERS 정의 순서를 그대로 따르므로(dict는 삽입 순서 보존),
@@ -202,73 +215,6 @@ def _build_paper_trading_html(positions: list[dict]) -> str:
     return f"<h2>모의 투자 현황</h2><div class='chart-frame'>{table}</div>"
 
 
-def _build_backtest_summary_html(backtest_summary: dict | None) -> str:
-    """backtest_summary: backtest.py's `python backtest.py full-universe` output
-    (Drive's _backtest_summary.json -- see backtest.build_backtest_summary), loaded
-    read-only by the caller. Per-ticker trade-simulation stats (n_trades/win rate/avg
-    return/Kelly fraction) for both the full analysis window and a recent N-year window
-    side by side, across every ASSET_CLASS_TICKERS + active S&P 500 ticker -- lets a reader
-    see at a glance whether the mechanical rule's historical edge for a given ticker still
-    holds in the recent window. Experimental/backward-looking, same advisory-only framing
-    as the AI prediction section -- never a substitute for the mechanical action shown
-    elsewhere in the report. Omitted entirely if not given/empty. Deliberately placed at the
-    very end of the page (outside the copy-to-clipboard scope, see
-    _build_copy_summary_bar_html) since it's reference/appendix material, not part of
-    "today's" market snapshot.
-    """
-    if not backtest_summary or not backtest_summary.get("rows"):
-        return ""
-
-    recent_years = backtest_summary.get("recent_years", 3)
-    generated_at = _esc(str(backtest_summary.get("generated_at", ""))[:10])
-
-    def _fmt_pct(value) -> str:
-        return f"{value:.1f}%" if value is not None else "—"
-
-    def _fmt_signed_pct(value) -> str:
-        return f"{value:+.1f}%" if value is not None else "—"
-
-    rows_html = []
-    for row in backtest_summary["rows"]:
-        rows_html.append(
-            "<tr>"
-            f"<td>{_esc(row['ticker'])}</td>"
-            f"<td>{_esc(row.get('category', ''))}</td>"
-            f"<td>{row.get('n_trades_all', 0)}</td>"
-            f"<td>{_fmt_pct(row.get('win_rate_all_pct'))}</td>"
-            f"<td>{_fmt_signed_pct(row.get('avg_return_all_pct'))}</td>"
-            f"<td>{_fmt_signed_pct(row.get('kelly_all_pct'))}</td>"
-            f"<td>{row.get(f'n_trades_{recent_years}y', 0)}</td>"
-            f"<td>{_fmt_pct(row.get(f'win_rate_{recent_years}y_pct'))}</td>"
-            f"<td>{_fmt_signed_pct(row.get(f'avg_return_{recent_years}y_pct'))}</td>"
-            f"<td>{_fmt_signed_pct(row.get(f'kelly_{recent_years}y_pct'))}</td>"
-            "</tr>"
-        )
-
-    table = (
-        "<table class='dense'><thead><tr>"
-        "<th rowspan='2'>티커</th><th rowspan='2'>구분</th>"
-        f"<th colspan='4'>전체 기간</th><th colspan='4'>최근 {recent_years}년</th>"
-        "</tr><tr>"
-        "<th>거래수</th><th>승률</th><th>평균수익률</th><th>켈리</th>"
-        "<th>거래수</th><th>승률</th><th>평균수익률</th><th>켈리</th>"
-        "</tr></thead><tbody>" + "".join(rows_html) + "</tbody></table>"
-    )
-    disclaimer = (
-        "<div class='prediction-disclaimer'>이 표는 각 종목에 톰 바소 추세추종 규칙(20일/100일 "
-        "돌파 매수, 트레일링 스탑 청산)을 과거에 그대로 적용했다면 어땠을지를 계산한 것입니다 — "
-        "돌파 시점 진입, 다음 청산 신호에 매도하는 거래 단위로 승률·평균 수익률·켈리 공식 기반 "
-        "리스크 비율을 냈습니다. <b>과거 성과이며 미래 성과를 보장하지 않고</b>, 위 매수/HOLD/매도 "
-        "판정을 대체하지 않습니다. \"거래수\"가 적은 종목(특히 최근 기간)은 통계적 신뢰도가 낮으니 "
-        "참고용으로만 활용하세요."
-        "</div>"
-    )
-    return (
-        f"<h2>전체 종목 백테스트 요약 (기준일: {generated_at})</h2>"
-        f"<details><summary>📋 펼쳐서 보기 ({len(backtest_summary['rows'])}종목)</summary>{disclaimer}{table}</details>"
-    )
-
-
 ACTION_SHORT = {"매수": "B", "HOLD": "H", "매도": "S"}
 
 
@@ -321,7 +267,7 @@ def _build_news_cards_html(news_items: list[dict]) -> str:
     for item in news_items:
         title = _esc(item.get("title", ""))
         link = item.get("link", "")
-        meta = " · ".join(filter(None, [_esc(item.get("publisher", "")), _esc(item.get("published_at", ""))]))
+        meta = " · ".join(filter(None, [_esc(item.get("publisher") or ""), _esc(item.get("published_at") or "")]))
         summary = _esc(item.get("summary", ""))
         title_html = f"<a href='{link}' target='_blank' rel='noopener'>{title}</a>" if link else title
         cards.append(
@@ -422,6 +368,7 @@ def _build_report_markdown(
     sp500_signals: list[dict] | None = None,
     macro_snapshot: dict | None = None,
     macro_issues: dict | None = None,
+    crypto_special: dict | None = None,
 ) -> str:
     """Markdown mirror of everything from the page title through the 모의 투자 section
     (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
@@ -442,6 +389,9 @@ def _build_report_markdown(
 
     if macro_issues and macro_issues.get("text"):
         lines += ["## 오늘 챙겨야 할 해외 이슈", "", macro_issues["text"], ""]
+
+    if crypto_special and crypto_special.get("text"):
+        lines += [f"## {CRYPTO_SPECIAL_TITLE}", "", crypto_special["text"], ""]
 
     if overview:
         lines += ["## 오늘의 종합 총평", "", overview, ""]
@@ -531,9 +481,9 @@ def build_daily_report_html(
     paper_positions: list[dict] | None = None,
     signal_history: dict | None = None,
     sp500_signals: list[dict] | None = None,
-    backtest_summary: dict | None = None,
     macro_snapshot: dict | None = None,
     macro_issues: dict | None = None,
+    crypto_special: dict | None = None,
     overview: str = "",
     as_of: str | None = None,
 ) -> str:
@@ -544,11 +494,6 @@ def build_daily_report_html(
 
     `sp500_signals` is retained for caller compatibility but omitted from the report
     and its copyable Markdown summary.
-
-    `backtest_summary` (backtest.py's `python backtest.py full-universe` output, loaded
-    read-only from Drive's _backtest_summary.json by the caller) is likewise optional,
-    omitted if not given/empty (see _build_backtest_summary_html) — per-ticker historical
-    trade-simulation stats, computed entirely outside this cron path.
 
     `paper_positions` (paper_trading.compute_position_returns' output, open positions only)
     is optional so existing callers/tests are unaffected — omitted entirely from the report
@@ -570,20 +515,23 @@ def build_daily_report_html(
     _build_macro_issues_html) -- an LLM-distilled shortlist of general (non-ticker) 해외
     매크로/지정학 issues worth tracking today, from a dedicated Exa search independent of any
     single ticker's signal. Advisory/context only, never a signal.
+
+    `crypto_special` (recommendation_engine.get_crypto_special_briefing's output) is likewise
+    optional -- the RWA/비트마인 crypto news digest, rendered right after the macro issues.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     macro_snapshot_html = _build_macro_snapshot_html(macro_snapshot)
     macro_issues_html = _build_macro_issues_html(macro_issues)
+    crypto_special_html = _build_crypto_special_html(crypto_special)
     table_html = _build_summary_table_html(results)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
-    backtest_summary_html = _build_backtest_summary_html(backtest_summary)
 
     report_markdown = _build_report_markdown(
         date, overview, results, signal_history, paper_positions, sp500_signals, macro_snapshot,
-        macro_issues,
+        macro_issues, crypto_special,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
@@ -606,6 +554,7 @@ def build_daily_report_html(
 </div>
 {macro_snapshot_html}
 {macro_issues_html}
+{crypto_special_html}
 {overview_html}
 {table_html}
 {history_html}
@@ -614,6 +563,5 @@ def build_daily_report_html(
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
 {hold_html}
-{backtest_summary_html}
 </body>
 </html>"""
