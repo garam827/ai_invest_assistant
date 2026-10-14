@@ -90,6 +90,27 @@ CRYPTO_SPECIAL_SYSTEM_PROMPT = (
 )
 
 
+BASEL3_SPECIAL_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 최근 수집된 바젤3(Basel III) 관련 은행 자본·유동성 규제 뉴스이며, 키워드별로 묶여 있다. "
+    "이 규제가 채권 평가와 변동성에 어떤 경로로 영향을 주는지를 중심으로 정리하라. 참고할 경로는 다음과 같다: "
+    "(1) 평가 — LCR이 국채 등 고유동성자산(HQLA) 보유를 요구해 은행의 국채 수요를 받치는 효과, "
+    "SLR 등 레버리지 규제가 국채에도 자본을 부과해 은행의 국채 보유·레포 중개 여력을 줄이고 기간 프리미엄과 "
+    "스왑 스프레드에 영향을 주는 효과, 바젤3 최종안의 위험가중자산 산정 변화가 은행 채권 포트폴리오와 "
+    "회사채 수요에 미치는 효과; "
+    "(2) 변동성 — 딜러 은행의 대차대조표 제약이 시장조성 여력을 낮춰 충격 시 국채 유동성이 마르고 변동성이 "
+    "커질 수 있는 구조(예: 2020년 3월 국채시장 혼란과 당시 SLR 한시 완화). "
+    "먼저 키워드별로 오늘 기사에서 확인되는 핵심 소식 1~2개를 번호로 적고, 그 소식이 위 경로 중 어디에 "
+    "해당하는지, 대표 자산군 중 미국 장기국채(TLT)·중기국채(IEF)를 볼 때 무엇을 지켜볼 만한지를 근거 기사 "
+    "내용에 기반해 구체적으로 설명하라. 마지막에 한두 문장으로 규제 흐름이 채권 변동성 환경에 대해 "
+    "시사하는 바를 담담하게 요약하라. "
+    "채권 가격·금리의 향후 방향을 예측·전망하지 말고, 단정적인 표현도 쓰지 마라. 이 정리는 어떤 종목의 "
+    "매수/HOLD/매도 판정이나 제안 수량도 바꾸지 않는다. 어떤 키워드에 관련 기사가 없다면 그 사실만 "
+    "담백하게 언급하면 된다. 마크다운 문법(**, ###, ---, 글머리 기호 등)은 전혀 쓰지 말고, 키워드 제목·"
+    "번호·줄바꿈만으로 구분되는 평문으로 작성하라 — 이 텍스트는 그대로(마크다운 렌더링 없이) 리포트에 삽입된다."
+)
+
+
 def _format_news_for_prompt(ticker: str, news_items: list[dict]) -> str:
     if not news_items:
         return f"[{ticker}] 관련 금일 뉴스 없음."
@@ -227,6 +248,17 @@ def generate_crypto_special_briefing(news_by_keyword: dict[str, list[dict]]) -> 
     into report_builder's crypto special section. Advisory/context only, same as
     generate_macro_issues_briefing — never changes any ticker's mechanical action.
     """
+    return _generate_keyword_briefing(CRYPTO_SPECIAL_SYSTEM_PROMPT, news_by_keyword)
+
+
+def generate_basel3_special_briefing(news_by_keyword: dict[str, list[dict]]) -> str:
+    """Distill Basel III regulatory news (news_fetcher.BASEL3_NEWS_QUERIES) into its effect on
+    bond valuation and volatility for report_builder's Basel III special section. Advisory only.
+    """
+    return _generate_keyword_briefing(BASEL3_SPECIAL_SYSTEM_PROMPT, news_by_keyword)
+
+
+def _generate_keyword_briefing(system_prompt: str, news_by_keyword: dict[str, list[dict]]) -> str:
     blocks = [_format_news_for_prompt(keyword, items) for keyword, items in news_by_keyword.items()]
     prompt = "\n\n".join(blocks) + "\n\n위 뉴스를 키워드별로 정리하라."
-    return _call_chat(CRYPTO_SPECIAL_SYSTEM_PROMPT, prompt)
+    return _call_chat(system_prompt, prompt)

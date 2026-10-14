@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.72](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.73](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
@@ -49,7 +49,7 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - Escape external LLM/news strings in HTML. Preserve Plotly HTML charts; do not reintroduce headless PNG rendering for Telegram.
 - Paper-trading open/close operations are UI-only, never cron operations. Cron may read positions and returns.
 - Backtest/model training are manual; the daily report displays neither backtest summaries nor model predictions.
-- The report's crypto special section (RWA·비트마인 news + LLM digest) is advisory only, like the macro issues section; it is skipped under `SKIP_LLM_AND_NEWS` and on `as_of` runs.
+- The report's keyword special sections (crypto: RWA·비트마인; Basel III: bond valuation/volatility) share `engine._get_keyword_news_briefing`. They are advisory only, like the macro issues section, and are skipped under `SKIP_LLM_AND_NEWS` and on `as_of` runs.
 - Keep GitHub Pages `docs/data/` and `docs/reports/` paths and payload compatibility intact.
 
 ## Documentation

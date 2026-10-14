@@ -440,40 +440,61 @@ def get_macro_issues_briefing(drive_db: DriveDB) -> dict | None:
     return {"text": text, "news": news_items}
 
 
-def get_crypto_special_briefing(drive_db: DriveDB) -> dict | None:
-    """Keyword-focused crypto news (news_fetcher.CRYPTO_NEWS_QUERIES: RWA, 비트마인) distilled by
-    the LLM for report_builder's crypto special section. Same shape and failure behavior as
-    get_macro_issues_briefing: one Exa search per keyword, merged and cached for the day under
-    news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY (each item tagged with its `keyword`), None when
-    config.SKIP_LLM_AND_NEWS is set or no keyword returned news. Advisory only.
+def _get_keyword_news_briefing(
+    drive_db: DriveDB, archive_key: str, queries: dict[str, str], max_items: int, lookback_days: int, generate
+) -> dict | None:
+    """Shared engine for the report's keyword-driven special sections. Same shape and failure
+    behavior as get_macro_issues_briefing: one Exa search per keyword, merged (deduped by
+    link) and cached for the day under `archive_key` with each item tagged by its `keyword`;
+    None when config.SKIP_LLM_AND_NEWS is set or no keyword returned news. Advisory only.
     """
     if config.SKIP_LLM_AND_NEWS:
         return None
 
-    news_items = news_fetcher.get_cached_news(drive_db, news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY)
+    news_items = news_fetcher.get_cached_news(drive_db, archive_key)
     if news_items is None:
         news_items = []
         seen_links: set[str] = set()
-        for keyword, query in news_fetcher.CRYPTO_NEWS_QUERIES.items():
+        for keyword, query in queries.items():
             for item in news_fetcher.fetch_ticker_news_exa(
-                news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY,
-                query=query,
-                max_items=config.CRYPTO_NEWS_MAX_ITEMS_PER_KEYWORD,
-                lookback_days=config.CRYPTO_NEWS_LOOKBACK_DAYS,
+                archive_key, query=query, max_items=max_items, lookback_days=lookback_days
             ):
                 key = item.get("link") or item.get("title")
                 if key in seen_links:
                     continue
                 seen_links.add(key)
                 news_items.append({**item, "keyword": keyword})
-        news_fetcher.archive_news(drive_db, news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY, news_items)
+        news_fetcher.archive_news(drive_db, archive_key, news_items)
 
     if not news_items:
         return None
 
     news_by_keyword = {
-        keyword: [item for item in news_items if item.get("keyword") == keyword]
-        for keyword in news_fetcher.CRYPTO_NEWS_QUERIES
+        keyword: [item for item in news_items if item.get("keyword") == keyword] for keyword in queries
     }
-    text = llm_briefing.generate_crypto_special_briefing(news_by_keyword)
-    return {"text": text, "keywords": list(news_fetcher.CRYPTO_NEWS_QUERIES), "news": news_items}
+    return {"text": generate(news_by_keyword), "keywords": list(queries), "news": news_items}
+
+
+def get_crypto_special_briefing(drive_db: DriveDB) -> dict | None:
+    """Crypto special section: news_fetcher.CRYPTO_NEWS_QUERIES (RWA, 비트마인)."""
+    return _get_keyword_news_briefing(
+        drive_db,
+        news_fetcher.CRYPTO_NEWS_ARCHIVE_KEY,
+        news_fetcher.CRYPTO_NEWS_QUERIES,
+        config.CRYPTO_NEWS_MAX_ITEMS_PER_KEYWORD,
+        config.CRYPTO_NEWS_LOOKBACK_DAYS,
+        llm_briefing.generate_crypto_special_briefing,
+    )
+
+
+def get_basel3_special_briefing(drive_db: DriveDB) -> dict | None:
+    """Basel III special section: bank capital/liquidity regulation news
+    (news_fetcher.BASEL3_NEWS_QUERIES) read for its effect on bond valuation and volatility."""
+    return _get_keyword_news_briefing(
+        drive_db,
+        news_fetcher.BASEL3_NEWS_ARCHIVE_KEY,
+        news_fetcher.BASEL3_NEWS_QUERIES,
+        config.BASEL3_NEWS_MAX_ITEMS_PER_KEYWORD,
+        config.BASEL3_NEWS_LOOKBACK_DAYS,
+        llm_briefing.generate_basel3_special_briefing,
+    )

@@ -59,6 +59,7 @@ class RefactorIntegrationTests(unittest.TestCase):
             stack.enter_context(patch.object(recommend, "get_sp500_signal_summary", return_value=[]))
             stack.enter_context(patch.object(recommend, "get_macro_issues_briefing", return_value=None))
             stack.enter_context(patch.object(recommend, "get_crypto_special_briefing", return_value=None))
+            stack.enter_context(patch.object(recommend, "get_basel3_special_briefing", return_value=None))
             stack.enter_context(patch.object(recommend.paper_trading, "load_positions", return_value=[]))
             stack.enter_context(patch.object(recommend.data_fetcher, "fetch_macro_snapshot", return_value={}))
             overview = stack.enter_context(patch.object(recommend.llm_briefing, "generate_portfolio_overview", return_value="Once"))
