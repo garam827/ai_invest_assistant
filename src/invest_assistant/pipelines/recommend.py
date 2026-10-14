@@ -18,6 +18,7 @@ from invest_assistant.recommendations.engine import (
     _actions_from_results,
     _recent_signal_history,
     _resolve_report_date,
+    get_basel3_special_briefing,
     get_crypto_special_briefing,
     get_macro_issues_briefing,
     get_recommendation_for_ticker,
@@ -45,7 +46,7 @@ def run_asset_class_recommendations(
     knows exactly which day this is). For recovering a specific lost/mislabeled past day
     (see _resolve_report_date) -- the normal daily cron never sets this. Sections that can
     only describe the present (paper positions, live macro snapshot, macro news briefing,
-    crypto special section, LLM overview) are omitted from a backfilled report, and its charts are
+    crypto/Basel III special sections, LLM overview) are omitted from a backfilled report, and its charts are
     truncated at `as_of`.
     """
     tickers = tickers if tickers is not None else instrument_universe.ASSET_CLASS_TICKERS
@@ -162,6 +163,15 @@ def run_asset_class_recommendations(
         except Exception:
             logger.exception("Failed to generate crypto special briefing (report will omit this section)")
 
+    # Basel III special section (bank capital/liquidity regulation news read for its effect on
+    # bond valuation and volatility) -- same optional/present-only handling.
+    basel3_special = None
+    if as_of is None:
+        try:
+            basel3_special = get_basel3_special_briefing(drive_db)
+        except Exception:
+            logger.exception("Failed to generate Basel III special briefing (report will omit this section)")
+
     overview = ""
     if results and as_of is None and not config.SKIP_LLM_AND_NEWS:
         try:
@@ -181,6 +191,7 @@ def run_asset_class_recommendations(
                 macro_snapshot=macro_snapshot,
                 macro_issues=macro_issues,
                 crypto_special=crypto_special,
+                basel3_special=basel3_special,
                 overview=overview,
                 as_of=as_of,
             )

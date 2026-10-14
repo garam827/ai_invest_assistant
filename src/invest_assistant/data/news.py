@@ -36,6 +36,15 @@ CRYPTO_NEWS_QUERIES = {
     "비트마인": "BitMine Immersion Technologies BMNR ethereum treasury news",
 }
 
+# Basel III special section (recommendation_engine.get_basel3_special_briefing): bank capital/
+# liquidity regulation news viewed through its effect on bond valuation and volatility.
+BASEL3_NEWS_ARCHIVE_KEY = "_BASEL3_SPECIAL_"
+BASEL3_NEWS_QUERIES = {
+    "바젤3 최종안·자본규제": "Basel III endgame bank capital requirements rule news",
+    "SLR·국채 수요": "supplementary leverage ratio bank Treasury demand bond market news",
+    "LCR·HQLA·시장 유동성": "liquidity coverage ratio HQLA Treasury market liquidity dealer balance sheet volatility",
+}
+
 
 def fetch_ticker_news_exa(
     ticker: str,

@@ -44,13 +44,34 @@ class CryptoSpecialBriefingTest(unittest.TestCase):
         exa.assert_not_called()
 
 
+class Basel3SpecialBriefingTest(unittest.TestCase):
+    def test_uses_basel3_queries_archive_and_prompt(self):
+        db = Mock()
+        with patch.object(config, "SKIP_LLM_AND_NEWS", False),                 patch.object(news_fetcher, "get_cached_news", return_value=None),                 patch.object(news_fetcher, "fetch_ticker_news_exa",
+                             side_effect=lambda _k, query, **_: [_item(query, f"https://{query}")]) as exa,                 patch.object(news_fetcher, "archive_news") as archive,                 patch.object(engine.llm_briefing, "generate_basel3_special_briefing", return_value="digest") as llm:
+            result = engine.get_basel3_special_briefing(db)
+
+        self.assertEqual(result["keywords"], list(news_fetcher.BASEL3_NEWS_QUERIES))
+        self.assertEqual(exa.call_count, len(news_fetcher.BASEL3_NEWS_QUERIES))
+        self.assertEqual(exa.call_args.kwargs["lookback_days"], config.BASEL3_NEWS_LOOKBACK_DAYS)
+        self.assertEqual(archive.call_args.args[1], news_fetcher.BASEL3_NEWS_ARCHIVE_KEY)
+        self.assertEqual(set(llm.call_args.args[0]), set(news_fetcher.BASEL3_NEWS_QUERIES))
+
+    def test_cached_news_skips_exa(self):
+        cached = [{**_item("t", "https://a"), "keyword": "SLR·국채 수요"}]
+        with patch.object(config, "SKIP_LLM_AND_NEWS", False),                 patch.object(news_fetcher, "get_cached_news", return_value=cached),                 patch.object(news_fetcher, "fetch_ticker_news_exa") as exa,                 patch.object(engine.llm_briefing, "generate_basel3_special_briefing", return_value="d") as llm:
+            engine.get_basel3_special_briefing(Mock())
+        exa.assert_not_called()
+        self.assertEqual(len(llm.call_args.args[0]["SLR·국채 수요"]), 1)
+
+
 class CryptoSpecialReportTest(unittest.TestCase):
     def test_section_is_escaped_and_mirrored_in_markdown(self):
         crypto = {"text": "<b>RWA</b> 소식", "news": [_item("t", "https://a")]}
-        html = report._build_crypto_special_html(crypto)
+        html = report._build_special_section_html(report.CRYPTO_SPECIAL_TITLE, crypto)
         self.assertIn(report.CRYPTO_SPECIAL_TITLE, html)
         self.assertIn("&lt;b&gt;RWA&lt;/b&gt;", html)
-        self.assertEqual(report._build_crypto_special_html(None), "")
+        self.assertEqual(report._build_special_section_html(report.CRYPTO_SPECIAL_TITLE, None), "")
         markdown = report._build_report_markdown("2026-10-12", "", {}, None, None, crypto_special=crypto)
         self.assertIn(f"## {report.CRYPTO_SPECIAL_TITLE}", markdown)
 
@@ -61,9 +82,17 @@ class CryptoSpecialReportTest(unittest.TestCase):
             html = report.build_daily_report_html(
                 Mock(), {"SPY": {"date": "2026-10-12", "action": "HOLD", "close": 1.0}},
                 crypto_special={"text": "digest", "news": []},
+                basel3_special={"text": "SLR", "news": []},
             )
         self.assertNotIn("백테스트", html)
-        self.assertIn(report.CRYPTO_SPECIAL_TITLE, html)
+        self.assertLess(html.index(report.CRYPTO_SPECIAL_TITLE), html.index(report.BASEL3_SPECIAL_TITLE))
+
+    def test_basel3_section_mirrored_in_markdown(self):
+        markdown = report._build_report_markdown(
+            "2026-10-14", "", {}, None, None, basel3_special={"text": "SLR 완화", "news": []}
+        )
+        self.assertIn(f"## {report.BASEL3_SPECIAL_TITLE}", markdown)
+        self.assertIn("SLR 완화", markdown)
 
 
 if __name__ == "__main__":

@@ -137,18 +137,19 @@ def _build_macro_issues_html(macro_issues: dict | None) -> str:
 
 
 CRYPTO_SPECIAL_TITLE = "🪙 크립토 특별 섹션: RWA · 비트마인"
+BASEL3_SPECIAL_TITLE = "🏦 바젤3 특별 섹션: 채권 평가·변동성 영향"
 
 
-def _build_crypto_special_html(crypto_special: dict | None) -> str:
-    """crypto_special: recommendation_engine.get_crypto_special_briefing's output -- an LLM
-    digest of keyword-focused crypto news (RWA, 비트마인) plus the news items it drew from.
+def _build_special_section_html(title: str, section: dict | None) -> str:
+    """section: a recommendation_engine keyword special briefing (get_crypto_special_briefing,
+    get_basel3_special_briefing) -- an LLM digest plus the news items it drew from.
     Advisory/context only, same as _build_macro_issues_html; omitted if not given/empty.
     """
-    if not crypto_special or not crypto_special.get("text"):
+    if not section or not section.get("text"):
         return ""
-    text_html = f"<div class='analysis'>{_esc(crypto_special['text'])}</div>"
-    news_html = _build_news_cards_html(crypto_special.get("news") or [])
-    return f"<h2>{CRYPTO_SPECIAL_TITLE}</h2>{text_html}{news_html}"
+    text_html = f"<div class='analysis'>{_esc(section['text'])}</div>"
+    news_html = _build_news_cards_html(section.get("news") or [])
+    return f"<h2>{title}</h2>{text_html}{news_html}"
 
 def _build_summary_table_html(results: dict) -> str:
     """results.items()는 ASSET_CLASS_TICKERS 정의 순서를 그대로 따르므로(dict는 삽입 순서 보존),
@@ -369,6 +370,7 @@ def _build_report_markdown(
     macro_snapshot: dict | None = None,
     macro_issues: dict | None = None,
     crypto_special: dict | None = None,
+    basel3_special: dict | None = None,
 ) -> str:
     """Markdown mirror of everything from the page title through the 모의 투자 section
     (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
@@ -390,8 +392,9 @@ def _build_report_markdown(
     if macro_issues and macro_issues.get("text"):
         lines += ["## 오늘 챙겨야 할 해외 이슈", "", macro_issues["text"], ""]
 
-    if crypto_special and crypto_special.get("text"):
-        lines += [f"## {CRYPTO_SPECIAL_TITLE}", "", crypto_special["text"], ""]
+    for title, section in [(CRYPTO_SPECIAL_TITLE, crypto_special), (BASEL3_SPECIAL_TITLE, basel3_special)]:
+        if section and section.get("text"):
+            lines += [f"## {title}", "", section["text"], ""]
 
     if overview:
         lines += ["## 오늘의 종합 총평", "", overview, ""]
@@ -484,6 +487,7 @@ def build_daily_report_html(
     macro_snapshot: dict | None = None,
     macro_issues: dict | None = None,
     crypto_special: dict | None = None,
+    basel3_special: dict | None = None,
     overview: str = "",
     as_of: str | None = None,
 ) -> str:
@@ -518,20 +522,23 @@ def build_daily_report_html(
 
     `crypto_special` (recommendation_engine.get_crypto_special_briefing's output) is likewise
     optional -- the RWA/비트마인 crypto news digest, rendered right after the macro issues.
+    `basel3_special` (get_basel3_special_briefing's output) follows it: Basel III regulatory
+    news read for its effect on bond valuation and volatility.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
     overview_html = f"<p class='overview'>{_esc(overview)}</p>" if overview else ""
     macro_snapshot_html = _build_macro_snapshot_html(macro_snapshot)
     macro_issues_html = _build_macro_issues_html(macro_issues)
-    crypto_special_html = _build_crypto_special_html(crypto_special)
+    crypto_special_html = _build_special_section_html(CRYPTO_SPECIAL_TITLE, crypto_special)
+    basel3_special_html = _build_special_section_html(BASEL3_SPECIAL_TITLE, basel3_special)
     table_html = _build_summary_table_html(results)
     paper_html = _build_paper_trading_html(paper_positions or [])
     history_html = _build_signal_history_html(signal_history or {})
 
     report_markdown = _build_report_markdown(
         date, overview, results, signal_history, paper_positions, sp500_signals, macro_snapshot,
-        macro_issues, crypto_special,
+        macro_issues, crypto_special, basel3_special,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
@@ -555,6 +562,7 @@ def build_daily_report_html(
 {macro_snapshot_html}
 {macro_issues_html}
 {crypto_special_html}
+{basel3_special_html}
 {overview_html}
 {table_html}
 {history_html}
