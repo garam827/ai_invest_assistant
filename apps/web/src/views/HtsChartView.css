@@ -10,7 +10,11 @@
   --hts-accent: #f5b100;
 
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  /* watchlist | chart | info. Fills the app's content area (see .app.wide in index.css). */
+  grid-template-columns: 250px minmax(0, 1fr) 270px;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
   background: var(--hts-bg);
   color: var(--hts-text);
   border: 1px solid var(--hts-border);
@@ -100,9 +104,7 @@
   padding: 0;
   overflow-y: auto;
   flex: 1;
-  /* Keep the watchlist no taller than the chart column on screen. */
-  max-height: calc(100dvh - 300px);
-  min-height: 240px;
+  min-height: 0;
 }
 
 .hts-watch-list li {
@@ -168,6 +170,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .hts-quote {
@@ -291,9 +294,9 @@
 /* Chart */
 .hts-chart {
   position: relative;
-  /* Fit the chart inside the window below the app bar, quote header and toolbar, and above
-     the bottom tab bar, so the whole price/volume/ATR stack is visible without scrolling. */
-  height: clamp(300px, calc(100dvh - 290px), 620px);
+  /* Takes all height left under the quote header and toolbar; the canvas auto-sizes to it. */
+  flex: 1;
+  min-height: 180px;
 }
 .hts-chart-canvas {
   position: absolute;
@@ -338,15 +341,23 @@
   font-size: 10px;
 }
 
-/* Info panel */
+/* Info column */
+.hts-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--hts-panel);
+  border-left: 1px solid var(--hts-border);
+}
 .hts-info {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  border-top: 1px solid var(--hts-border);
+  display: flex;
+  flex-direction: column;
 }
 .hts-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   margin: 0;
 }
@@ -406,7 +417,7 @@
 }
 
 .hts-hint {
-  margin: 0;
+  margin: auto 0 0;
   padding: 8px 14px 10px;
   color: var(--hts-muted);
   font-size: 11px;
@@ -417,53 +428,65 @@
   color: #c62828;
 }
 
+/* Mid-width desktops: the info column moves under the chart as a compact strip so the
+   chart keeps its width. */
+@media (max-width: 1199px) {
+  .hts {
+    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .hts-watch {
+    grid-row: 1 / span 2;
+  }
+  .hts-side {
+    grid-column: 2;
+    overflow: visible;
+    border-left: none;
+    border-top: 1px solid var(--hts-border);
+  }
+  .hts-info {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 230px;
+  }
+  .hts-stats {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .hts-stats > div {
+    padding: 6px 10px;
+    border-bottom: none;
+  }
+  .hts-stats dd {
+    font-size: 13px;
+  }
+  .hts-stats dd small {
+    display: block;
+  }
+  .hts-signals {
+    padding: 6px 10px;
+  }
+  .hts-signals h3 {
+    margin-bottom: 2px;
+  }
+  .hts-signals ul {
+    max-height: 44px;
+    overflow-y: auto;
+  }
+  .hts-hint {
+    display: none;
+  }
+}
+
 /* Fullscreen: watchlist + chart fill the screen. */
 .hts.is-fullscreen {
   height: 100vh;
+  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   border-radius: 0;
   border: none;
 }
-.hts.is-fullscreen .hts-watch-list {
-  max-height: none;
+.hts.is-fullscreen .hts-watch {
+  grid-row: auto;
 }
-.hts.is-fullscreen .hts-main {
-  min-height: 0;
-}
-.hts.is-fullscreen .hts-chart {
-  flex: 1;
-  height: auto;
-  min-height: 0;
-}
-.hts.is-fullscreen .hts-info,
-.hts.is-fullscreen .hts-hint {
+.hts.is-fullscreen .hts-side {
   display: none;
-}
-
-@media (max-width: 900px) {
-  .hts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .hts-watch {
-    border-right: none;
-    border-bottom: 1px solid var(--hts-border);
-  }
-  .hts-watch-list {
-    max-height: 200px;
-    min-height: 0;
-  }
-  .hts-chart {
-    height: clamp(280px, calc(100dvh - 300px), 460px);
-  }
-  .hts-legend {
-    right: 60px;
-  }
-  .hts-legend .hts-legend-ind {
-    display: none;
-  }
-  .hts-info {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .hts-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }

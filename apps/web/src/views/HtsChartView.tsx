@@ -380,7 +380,9 @@ export function HtsChartView({ ticker, onTickerChange: setTicker }: ChartViewPro
           {rows && rows.length === 0 && <p className="hts-chart-msg">이 종목의 차트 데이터가 아직 없습니다.</p>}
           {rows && rows.length > 0 && <TickerChart ref={chartRef} rows={rows} settings={settings} onHover={handleHover} />}
         </div>
+      </section>
 
+      <aside className="hts-side">
         {stats && (
           <div className="hts-info">
             <dl className="hts-stats">
@@ -438,7 +440,7 @@ export function HtsChartView({ ticker, onTickerChange: setTicker }: ChartViewPro
         <p className="hts-hint">
           ↑/↓ 종목 이동 · 드래그/휠로 스크롤·확대 · / 검색 · F 전체 화면. 거래량 진한 막대는 거래량 급증일입니다. 보조지표는 참고용이며 매매 판단에 쓰이지 않습니다.
         </p>
-      </section>
+      </aside>
     </div>
   )
 }

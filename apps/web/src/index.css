@@ -1208,9 +1208,23 @@ h2 {
   }
 }
 
-/* The HTS chart screen (>= 900px) uses the full desktop width. */
+/* The HTS chart screen (>= 900px) uses the full desktop width and exactly one viewport:
+   the content area takes whatever the app bar and fixed tab bar leave, so the page never
+   scrolls. Very short windows fall back to scrolling via the min-height. */
 @media (min-width: 900px) {
   .app.wide {
     max-width: 1480px;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    min-height: 480px;
+  }
+
+  .app.wide .content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 12px;
   }
 }
