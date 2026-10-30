@@ -17,6 +17,7 @@
 | `report_builder.py` | `reporting/report.py`, `storage/reports.py` | HTML·Markdown 구성과 저장·조회 분리 |
 | `chart_builder.py`, `blog_chart_builder.py` | `reporting/charts.py`, `reporting/blog_charts.py` | 공통 차트 |
 | `static_export.py`, `telegram_notifier.py` | `publishing/static.py`, `publishing/telegram.py` | 공개 JSON·Telegram |
+| (v3.74 신규) | `analysis/weekly.py`, `recommendations/weekly.py`, `reporting/weekly.py`, `pipelines/weekly.py` | 주간 계산·NYSE 휴장일 / 주간 LLM 해설과 규칙 기반 대체 / 주간 HTML 렌더링 / 주간 실행 흐름 |
 
 표의 축약 경로는 `src/invest_assistant/` 아래입니다. 패키지 import는
 `from invest_assistant.analysis import signals`처럼 사용합니다. 이전 루트 모듈은 남기지 않습니다.
@@ -36,12 +37,17 @@ flowchart TD
   Daily --> Publish[정적 JSON·Telegram]
   Daily --> Store[레포트 저장]
   Publish --> Pages[docs/ 공개 결과물]
+  Weekly[주간 리포트 파이프라인] --> WeeklyCalc[주간 계산·시그널 이력]
+  Weekly --> Briefing
+  Weekly --> Publish
+  Daily --> Drive
   Store --> Pages
   Web[React 사이트] --> Pages
 ```
 
 총평은 일일 파이프라인이 한 번 생성해 HTML과 정적 JSON에 전달합니다.
 레포트 렌더러와 정적 JSON 출력기는 LLM을 직접 호출하지 않습니다.
+주간 파이프라인도 같은 원칙으로 LLM 해설을 `recommendations/weekly.py`에서 한 번 만들어 `reporting/weekly.py`에 전달하며, 일일 파이프라인이 Drive `_special_briefings.json`에 누적한 브리핑을 입력으로 씁니다.
 레포트 차트용 시세 조회·지표 계산은 현재 `reporting/report.py`에 남아 있습니다.
 백테스트의 데이터 준비·요약 저장 함수도 `analysis/backtest.py`에 남고, 명령 실행부를 먼저 분리했습니다.
 공통 패키지는 Streamlit을 import하지 않습니다.

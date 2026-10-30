@@ -270,7 +270,7 @@ def _build_news_cards_html(news_items: list[dict]) -> str:
         link = item.get("link", "")
         meta = " · ".join(filter(None, [_esc(item.get("publisher") or ""), _esc(item.get("published_at") or "")]))
         summary = _esc(item.get("summary", ""))
-        title_html = f"<a href='{link}' target='_blank' rel='noopener'>{title}</a>" if link else title
+        title_html = f"<a href='{html.escape(link)}' target='_blank' rel='noopener'>{title}</a>" if link else title
         cards.append(
             "<div class='news-card'>"
             f"{title_html}"

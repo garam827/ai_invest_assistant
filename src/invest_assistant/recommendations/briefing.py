@@ -262,3 +262,123 @@ def _generate_keyword_briefing(system_prompt: str, news_by_keyword: dict[str, li
     blocks = [_format_news_for_prompt(keyword, items) for keyword, items in news_by_keyword.items()]
     prompt = "\n\n".join(blocks) + "\n\n위 뉴스를 키워드별로 정리하라."
     return _call_chat(system_prompt, prompt)
+
+
+WEEKLY_ASSET_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 지난 한 주(미국 거래일 기준) 대표 자산군 13종의 주간 수익률·고저·트레일링 스탑 거리와, "
+    "규칙에 따라 이미 확정된 일별 기계적 판정 기록, 매크로 지표의 주간 변화다. 판정은 확정된 사실이며 "
+    "너는 이를 절대 바꾸거나 재해석하지 않는다. 한 주의 소음을 걸러내고 자산군 간 상대적 흐름이 장기 "
+    "추세 관점에서 무엇을 의미하는지 담담하게 정리하라. 향후 가격이나 방향을 예측·전망하지 말고 단정적 "
+    "표현도 쓰지 마라. 마크다운 문법은 쓰지 말고, 반드시 아래 형식의 줄 머리말을 그대로 지켜 평문으로 "
+    "작성하라(각 머리말은 한 번씩만):\n"
+    "요약: 한 문장\n"
+    "국면: 위험선호, 위험회피, 혼조 중 하나만\n"
+    "근거: 두세 문장\n"
+    "주식: 두세 문장\n암호화폐: 두세 문장\n귀금속: 두세 문장\n채권: 두세 문장\n원자재: 두세 문장\n통화: 두세 문장"
+)
+
+WEEKLY_CHECKPOINTS_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 이번 주 일일 리포트의 '해외 이슈' 정리와 그 근거 기사들이다. 여기에 실제로 언급된 다음 주 "
+    "이후의 일정과 이벤트(FOMC, 주요 기업 실적, 경제지표 발표, 정책 결정 등)만 골라 3~6개로 번호를 매겨 "
+    "정리하라. 각 항목은 무엇이 언제 예정되어 있는지와 추세추종 투자자가 왜 지켜볼 만한지를 한두 문장으로 "
+    "적어라. 자료에 날짜가 없으면 '일정 미확인'이라고 쓰고, 자료에 없는 일정이나 수치는 절대 만들지 마라. "
+    "결과를 예측하지 말고, 어떤 종목의 판정도 바꾸지 않는다. 마크다운 없이 번호와 줄바꿈만 쓰는 평문으로 작성하라."
+)
+
+WEEKLY_SPECIAL_THEME_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 한 테마({theme})에 대한 이번 주 일별 브리핑과 근거 기사, 주간 추가 검색 기사, 그리고 연결된 "
+    "대표 자산의 이번 주 기계적 판정 기록이다. 판정은 확정된 사실이며 너의 해석은 참고용일 뿐 판정을 "
+    "바꾸지 않는다. 가격·금리 방향을 예측하지 말고 단정적 표현도 쓰지 마라. 마크다운 없이, 아래 대괄호 "
+    "머리말을 각각 한 줄로 단독 배치하고 그 아래에 내용을 쓰라:\n"
+    "[반복] 주중 여러 날 반복 등장한 이슈를 번호로 1~3개\n"
+    "[신규] 주 후반이나 추가 검색에서 새로 등장한 이슈를 번호로 1~3개\n"
+    "[소멸] 주 초반에 다뤄졌다가 이후 사라진 이슈를 번호로 0~3개(없으면 '없음')\n"
+    "[수치] 기사에 명시된 수치만 한 줄에 하나씩 '지표 | 값 | 기준일 | 근거 기사 제목' 형식으로. "
+    "기사에 없는 수치는 절대 만들거나 계산하지 마라. 없으면 '없음'\n"
+    "[자산연결] {assets}의 이번 주 판정 기록과 위 이슈를 연결한 참고 해석 두세 문장\n"
+    "[다음주] 다음 주에 지켜볼 점 1~3개"
+)
+
+WEEKLY_SPECIAL_HIGHLIGHTS_SYSTEM_PROMPT = (
+    "너는 전설적인 시스템 트레이더이자 미스터 세레니티(Mr. Serenity)로 불리는 톰 바소다. "
+    "아래는 크립토(RWA·비트마인)와 바젤3(채권 평가·변동성) 테마의 이번 주 정리다. 두 테마를 통틀어 "
+    "이번 주 핵심 5가지와 다음 주에 볼 것을 정리하라. 주어진 정리에 없는 사실이나 수치는 만들지 말고, "
+    "예측·단정 없이 담담하게 쓰라. 마크다운 없이, 아래 머리말을 각각 한 줄로 단독 배치하라:\n"
+    "[핵심] 번호를 매긴 정확히 5개 항목, 각 한두 문장\n"
+    "[다음주] 번호를 매긴 2~4개 항목"
+)
+
+WEEKLY_ASSET_KEYS = ("요약", "국면", "근거", "주식", "암호화폐", "귀금속", "채권", "원자재", "통화")
+WEEKLY_SPECIAL_THEME_KEYS = ("반복", "신규", "소멸", "수치", "자산연결", "다음주")
+WEEKLY_SPECIAL_HIGHLIGHT_KEYS = ("핵심", "다음주")
+
+
+def _parse_prefixed_lines(text: str, keys: tuple[str, ...]) -> dict[str, str]:
+    """'키: 내용' lines; untagged lines continue the previous key."""
+    pattern = re.compile(r"^\s*(" + "|".join(map(re.escape, keys)) + r")\s*[:：]\s*(.*)$")
+    parsed: dict[str, list[str]] = {}
+    current = None
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match and match.group(1) not in parsed:
+            current = match.group(1)
+            parsed[current] = [match.group(2)]
+        elif current is not None:
+            parsed[current].append(line)
+    return {key: "\n".join(lines).strip() for key, lines in parsed.items() if "\n".join(lines).strip()}
+
+
+def _parse_bracket_sections(text: str, keys: tuple[str, ...]) -> dict[str, str]:
+    """'[키]' header lines followed by their body; anything before the first header is dropped."""
+    pattern = re.compile(r"^\s*\[(" + "|".join(map(re.escape, keys)) + r")\]\s*(.*)$")
+    parsed: dict[str, list[str]] = {}
+    current = None
+    for line in text.splitlines():
+        match = pattern.match(line)
+        if match:
+            current = match.group(1)
+            parsed.setdefault(current, [])
+            if match.group(2).strip():
+                parsed[current].append(match.group(2))
+        elif current is not None:
+            parsed[current].append(line)
+    return {key: "\n".join(lines).strip() for key, lines in parsed.items() if "\n".join(lines).strip()}
+
+
+def generate_weekly_asset_briefing(facts: str) -> dict[str, str]:
+    """Weekly asset-page overview (요약/국면/근거) and per-category commentary, from the
+    pipeline's pre-formatted weekly facts. Keys missing from the reply are simply absent --
+    the caller fills them from its rule-based text. Commentary only, never an action."""
+    text = _call_chat(WEEKLY_ASSET_SYSTEM_PROMPT, facts + "\n\n위 자료로 지정된 형식에 맞춰 주간 총평을 작성하라.")
+    return _parse_prefixed_lines(text, WEEKLY_ASSET_KEYS)
+
+
+def generate_weekly_checkpoints(daily_issues: list[dict]) -> str:
+    """Next-week checkpoints from this week's daily '해외 이슈' records
+    ([{"date", "text", "news"}], oldest first; "text" may be empty when only the archived
+    news survives)."""
+    blocks = []
+    for entry in daily_issues:
+        block = [f"[{entry['date']} 해외 이슈]"]
+        if entry.get("text"):
+            block.append(entry["text"])
+        block.append(_format_news_for_prompt("근거 기사", entry.get("news") or []))
+        blocks.append("\n".join(block))
+    prompt = "\n\n".join(blocks) + "\n\n위 자료에 언급된 다음 주 체크포인트를 정리하라."
+    return _call_chat(WEEKLY_CHECKPOINTS_SYSTEM_PROMPT, prompt)
+
+
+def generate_weekly_special_theme(theme: str, assets: str, material: str) -> dict[str, str]:
+    """One special theme's weekly synthesis, parsed into WEEKLY_SPECIAL_THEME_KEYS sections.
+    `material` is the pipeline-formatted daily records + fresh news + linked asset signals."""
+    system_prompt = WEEKLY_SPECIAL_THEME_SYSTEM_PROMPT.format(theme=theme, assets=assets)
+    text = _call_chat(system_prompt, material + "\n\n위 자료로 지정된 머리말 형식에 맞춰 정리하라.")
+    return _parse_bracket_sections(text, WEEKLY_SPECIAL_THEME_KEYS)
+
+
+def generate_weekly_special_highlights(theme_summaries: str) -> dict[str, str]:
+    text = _call_chat(WEEKLY_SPECIAL_HIGHLIGHTS_SYSTEM_PROMPT, theme_summaries)
+    return _parse_bracket_sections(text, WEEKLY_SPECIAL_HIGHLIGHT_KEYS)
