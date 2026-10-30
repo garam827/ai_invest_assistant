@@ -1,0 +1,99 @@
+name: Weekly report
+
+on:
+  schedule:
+    # Sunday 20:37 UTC = Monday 05:37 KST. The pages must be up by 07:00 KST; GitHub's
+    # best-effort scheduling has been seen to lag close to an hour (see collect.yml), so
+    # this leaves that much headroom. Minute :37 avoids the queue spikes at round minutes.
+    # By Sunday the Friday close has long been collected (collect.yml runs Mon-Fri 21:57 UTC).
+    - cron: "37 20 * * 0"
+  workflow_dispatch:
+    inputs:
+      skip_llm_and_news:
+        description: "Exa 뉴스/LLM 호출 생략 — 자산 리포트는 규칙 기반 문장으로, 특별 섹션 페이지는 생성하지 않음"
+        type: boolean
+        default: true
+      is_test:
+        description: "테스트 발행 — 파일명에 _test 접미어, 인덱스·텔레그램·Drive 누적 기록 미변경"
+        type: boolean
+        default: true
+      week:
+        description: "과거 주 재생성 (예: 2026-W44). 비우면 직전 완료 주. 지정 시 텔레그램·새 Exa 검색 없음"
+        type: string
+        default: ""
+
+# One weekly publish at a time; queued runs wait instead of racing each other's push.
+concurrency:
+  group: weekly-report
+  cancel-in-progress: false
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write # commit+push docs/reports/weekly/ and docs/data/weekly_reports.json
+    env:
+      GOOGLE_OAUTH_CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_JSON }}
+      GOOGLE_OAUTH_TOKEN_JSON: ${{ secrets.GOOGLE_OAUTH_TOKEN_JSON }}
+      DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_MODEL_NAME: ${{ vars.LLM_MODEL_NAME }}
+      EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SKIP_LLM_AND_NEWS: ${{ github.event.inputs.skip_llm_and_news }}
+      IS_TEST_REPORT: ${{ github.event.inputs.is_test }}
+      WEEK: ${{ github.event.inputs.week }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -e .
+
+      - name: Verify regression checks
+        run: python -m unittest discover -s tests -v
+
+      - name: Generate weekly reports
+        id: weekly
+        run: |
+          if [ -n "${WEEK}" ]; then
+            python -m invest_assistant.pipelines.weekly --week "${WEEK}"
+          else
+            python -m invest_assistant.pipelines.weekly
+          fi
+
+      - name: Publish weekly reports to GitHub Pages
+        env:
+          WEEK_ID: ${{ steps.weekly.outputs.week }}
+        run: |
+          if [ ! -d docs/reports/weekly ]; then
+            echo "No weekly report generated, nothing to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/reports/weekly
+          if [ -f docs/data/weekly_reports.json ]; then
+            git add docs/data/weekly_reports.json
+          fi
+          if [ "${IS_TEST_REPORT}" = "true" ]; then
+            message="Add test weekly report ${WEEK_ID}"
+          else
+            message="Add weekly report ${WEEK_ID}"
+          fi
+          git diff --cached --quiet && { echo "No changes to publish."; exit 0; }
+          git commit -m "${message}"
+          # The daily recommend/deploy workflows also push to master; rebase onto them and
+          # retry a few times if one lands between our pull and push.
+          for attempt in 1 2 3; do
+            git pull --rebase origin master && git push && exit 0
+            echo "Push attempt ${attempt} failed, retrying..."
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 10))
+          done
+          exit 1

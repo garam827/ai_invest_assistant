@@ -109,6 +109,41 @@ def format_summary(results: dict, report_url: str | None = None, paper_positions
     return text
 
 
+def _escape_markdown(text: str) -> str:
+    """Telegram legacy Markdown treats _ * ` [ as entity markers; an unbalanced one in
+    LLM text makes the whole sendMessage fail, so escape them in free text."""
+    return "".join(f"\\{ch}" if ch in "_*`[" else ch for ch in text)
+
+
+def format_weekly_summary(
+    week: str,
+    period: str,
+    summary: str,
+    regime: str,
+    returns: dict[str, float],
+    changes: dict[str, list[tuple[str, str, str]]],
+    asset_url: str | None,
+    special_url: str | None,
+) -> str:
+    """3~5 summary lines plus links to the two weekly pages."""
+    ranked = sorted(returns, key=returns.get, reverse=True)
+    lines = [
+        f"*주간 리포트* {week} ({period})",
+        f"국면: {_escape_markdown(regime)}",
+        _escape_markdown(" ".join(summary.split())),
+    ]
+    if ranked:
+        best, worst = ranked[0], ranked[-1]
+        lines.append(f"최고 {best} {returns[best]:+.2f}% · 최저 {worst} {returns[worst]:+.2f}%")
+    events = [f"{t} {prev}→{action}" for t, items in changes.items() for _, prev, action in items]
+    lines.append(f"시그널 전환: {', '.join(events) if events else '없음'}")
+    if asset_url:
+        lines.append(f"🔗 [주간 자산 리포트]({asset_url})")
+    if special_url:
+        lines.append(f"🔗 [특별 섹션 주간 리포트]({special_url})")
+    return "\n".join(lines)
+
+
 def notify_recommendations(
     results: dict, report_url: str | None = None, paper_positions: list[dict] | None = None
 ) -> None:

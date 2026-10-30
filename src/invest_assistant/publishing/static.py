@@ -155,6 +155,43 @@ def export_reports_index(history: dict | None = None) -> None:
     logger.info("Exported reports.json (%d report dates)", len(dates))
 
 
+WEEKLY_INDEX_FILENAME = "weekly_reports.json"
+
+
+def export_weekly_reports_index(week: str, period: str) -> list[dict]:
+    """docs/data/weekly_reports.json -- `[{week, period, asset_url, special_url}]`, newest
+    first. Upserts `week` into the existing list (other weeks' periods are kept as written);
+    URLs are relative to the site root and present only when the page exists on disk.
+    Separate from reports.json so the daily index and its payload stay unchanged. No-op on
+    a test run."""
+    if config.IS_TEST_REPORT:
+        return []
+
+    path = os.path.join(DOCS_DATA_DIR, WEEKLY_INDEX_FILENAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            entries = [e for e in json.load(f) if isinstance(e, dict) and e.get("week")]
+    except (OSError, ValueError):
+        entries = []
+
+    weekly_dir = report_store.LOCAL_WEEKLY_REPORT_DIR
+
+    def _url(name: str) -> str | None:
+        return f"reports/weekly/{name}.html" if os.path.exists(os.path.join(weekly_dir, f"{name}.html")) else None
+
+    by_week = {e["week"]: e for e in entries}
+    by_week[week] = {
+        "week": week,
+        "period": period,
+        "asset_url": _url(week),
+        "special_url": _url(f"{week}-special"),
+    }
+    ordered = [by_week[w] for w in sorted(by_week, reverse=True)]
+    _write_json(path, ordered)
+    logger.info("Exported %s (%d weeks)", WEEKLY_INDEX_FILENAME, len(ordered))
+    return ordered
+
+
 def _chart_rows_for_ticker(raw_df: pd.DataFrame) -> list[dict]:
     signals = signal_engine.compute_signals(raw_df)
     view = chart_builder.slice_to_period(signals, CHART_EXPORT_WINDOW_DAYS)[CHART_COLUMNS].copy()
