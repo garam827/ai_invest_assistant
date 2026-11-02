@@ -21,11 +21,15 @@ Windows 개발환경 일괄 설치는 `scripts\setup.bat`, 연구용 추가 패�
 ```powershell
 python -m invest_assistant.pipelines.collect update
 python -m invest_assistant.pipelines.recommend
+python -m invest_assistant.pipelines.weekly
 python -m invest_assistant.pipelines.backtest full-universe
 python -m unittest discover -s tests -v
 ```
 
 수집 명령은 Drive 데이터를 갱신합니다. 추천 명령은 설정에 따라 Drive·공개 레포트·정적 JSON을 저장하고 Telegram을 발송합니다.
+주간 명령은 직전 미국 거래 주의 주간 자산 리포트와 특별 섹션 주간 리포트를 `docs/reports/weekly/`에 만들고 `docs/data/weekly_reports.json`을 갱신합니다.
+`--week 2026-W44`로 과거 주를 다시 만들 수 있으며(텔레그램 미발송), `SKIP_LLM_AND_NEWS=true IS_TEST_REPORT=true`로 비용 없이 `_test` 페이지를 확인합니다.
+GitHub Actions `weekly.yml`이 매주 월요일 05:37 KST에 자동 실행합니다.
 외부 호출 없이 검증하려면 위 테스트 명령을 사용합니다.
 
 일일 수집은 Drive 작업자 3개와 Yahoo 순차 조회를 조합합니다. `.env`의 `COLLECTION_WORKERS=1`로 순차 처리로 전환할 수 있습니다.

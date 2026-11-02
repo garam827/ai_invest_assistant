@@ -1,6 +1,6 @@
 # Repository guidance
 
-Current specification: [v3.73](documentation/specs/investment_assistant_spec.md).
+Current specification: [v3.74](documentation/specs/investment_assistant_spec.md).
 Deployment specification: [GCP + Cloudflare](documentation/specs/streamlit_gcp_cloudflare_spec.md). Public snapshot containers are implemented; actual GCP deployment and domain setup remain pending a zero-budget review.
 Architecture and migration map: [layout](documentation/architecture/layout.md).
 Historical notes are preserved in `documentation/specs/archive/`; they describe older paths and deployment states.
@@ -12,6 +12,7 @@ Historical notes are preserved in `documentation/specs/archive/`; they describe 
 - React: `apps/web/`; `npm ci` then `npm run build`. Output remains `docs/` with `emptyOutDir: false` to preserve reports/data.
 - Collection: `python -m invest_assistant.pipelines.collect update` (`init` and `sync` also supported).
 - Recommendation/publication: `python -m invest_assistant.pipelines.recommend`.
+- Weekly reports: `python -m invest_assistant.pipelines.weekly` (`--week YYYY-Www` regenerates a past week).
 - Backtest: `python -m invest_assistant.pipelines.backtest full-universe`.
 - Tests: `python -m unittest discover -s tests -v`.
 - Research: `python -m research.prediction_model.feature_engineering` and sibling modules.
@@ -51,6 +52,8 @@ Streamlit widgets/session state stay in `apps/streamlit/tabs/`; caches in `servi
 - Backtest/model training are manual; the daily report displays neither backtest summaries nor model predictions.
 - The report's keyword special sections (crypto: RWA·비트마인; Basel III: bond valuation/volatility) share `engine._get_keyword_news_briefing`. They are advisory only, like the macro issues section, and are skipped under `SKIP_LLM_AND_NEWS` and on `as_of` runs.
 - Keep GitHub Pages `docs/data/` and `docs/reports/` paths and payload compatibility intact.
+- Weekly reports read stored `_signal_history.json` records only and never derive a new action; a stored 매도 is a state, so "changes" are transitions between consecutive records. The scheduled weekly run fails before publishing on stale data; `--week` reruns skip Telegram and fresh Exa search and read nothing after the week. Weekly pages live under `docs/reports/weekly/` with their own `docs/data/weekly_reports.json`; do not fold them into `reports.json`.
+- The daily pipeline accumulates special/macro briefings in Drive `_special_briefings.json` for the weekly special page; `as_of` and test runs must not write it.
 
 ## Documentation
 

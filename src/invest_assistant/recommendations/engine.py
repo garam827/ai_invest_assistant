@@ -34,6 +34,33 @@ def load_signal_history(drive_db: DriveDB) -> dict:
     return drive_db.load_json(SIGNAL_HISTORY_FILENAME) or {}
 
 
+# {date: {"crypto": {...}, "basel3": {...}, "macro": {...}}} -- the daily special/macro
+# briefing text plus its news, kept so the weekly report can synthesize a week of them
+# (otherwise they only survive inside each day's HTML). Real runs only, like the signal
+# history; trimmed to SPECIAL_BRIEFINGS_RETENTION_DAYS so the file stays small.
+SPECIAL_BRIEFINGS_FILENAME = "_special_briefings.json"
+SPECIAL_BRIEFINGS_RETENTION_DAYS = 180
+
+
+def load_special_briefings(drive_db: DriveDB) -> dict:
+    return drive_db.load_json(SPECIAL_BRIEFINGS_FILENAME) or {}
+
+
+def record_special_briefings(drive_db: DriveDB, date: str, sections: dict[str, dict | None]) -> bool:
+    """Store the day's briefings under `date`; sections that were skipped/failed (None) are
+    left out, and nothing is written when every section is None. Callers gate out `as_of`
+    and test runs. Returns whether a write happened."""
+    entry = {name: section for name, section in sections.items() if section and section.get("text")}
+    if not entry:
+        return False
+    records = load_special_briefings(drive_db)
+    records[date] = entry
+    cutoff = (pd.Timestamp(date) - pd.Timedelta(days=SPECIAL_BRIEFINGS_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    records = {d: v for d, v in records.items() if d >= cutoff}
+    drive_db.save_json(SPECIAL_BRIEFINGS_FILENAME, records)
+    return True
+
+
 def _recent_signal_history(history: dict, days: int = 20) -> dict:
     """Slice to the most recent `days` *weekday* dates (Mon-Fri) — used for the daily
     report's embedded signal history table (report_builder._build_signal_history_html),
@@ -451,6 +478,22 @@ def _get_keyword_news_briefing(
     if config.SKIP_LLM_AND_NEWS:
         return None
 
+    news_items = _collect_keyword_news(drive_db, archive_key, queries, max_items, lookback_days)
+    if not news_items:
+        return None
+
+    news_by_keyword = {
+        keyword: [item for item in news_items if item.get("keyword") == keyword] for keyword in queries
+    }
+    return {"text": generate(news_by_keyword), "keywords": list(queries), "news": news_items}
+
+
+def _collect_keyword_news(
+    drive_db: DriveDB, archive_key: str, queries: dict[str, str], max_items: int, lookback_days: int
+) -> list[dict]:
+    """One Exa search per keyword, deduped by link, tagged with `keyword`, cached for the day
+    under `archive_key` -- the news half of _get_keyword_news_briefing, shared by the weekly
+    special page's fresh 7-day search."""
     news_items = news_fetcher.get_cached_news(drive_db, archive_key)
     if news_items is None:
         news_items = []
@@ -465,14 +508,7 @@ def _get_keyword_news_briefing(
                 seen_links.add(key)
                 news_items.append({**item, "keyword": keyword})
         news_fetcher.archive_news(drive_db, archive_key, news_items)
-
-    if not news_items:
-        return None
-
-    news_by_keyword = {
-        keyword: [item for item in news_items if item.get("keyword") == keyword] for keyword in queries
-    }
-    return {"text": generate(news_by_keyword), "keywords": list(queries), "news": news_items}
+    return news_items
 
 
 def get_crypto_special_briefing(drive_db: DriveDB) -> dict | None:

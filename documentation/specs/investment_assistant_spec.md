@@ -1,11 +1,12 @@
 # 톰 바소 스타일 추세추종 투자 어시스턴트 명세
 
-현재 버전: **v3.73 (2026-10-14)**
+현재 버전: **v3.74 (2026-10-30)**
 
 ## 변경 이력과 아카이브
 
 | 버전 | 날짜 | 변경 |
 | --- | --- | --- |
+| v3.74 | 2026-10-30 | 주간 리포트 추가: 매주 월요일 05:37 KST(`weekly.yml`)에 직전 미국 거래 주(ISO 주차)의 주간 자산 리포트와 크립토·바젤3 특별 섹션 주간 리포트를 `docs/reports/weekly/`에 발행하고 `docs/data/weekly_reports.json` 인덱스와 Telegram 요약을 갱신. 시그널은 저장된 이력만 사용(판정 불변). 일일 파이프라인이 크립토·바젤3·해외 이슈 브리핑을 Drive `_special_briefings.json`에 누적(as_of·테스트 제외). |
 | v3.73 | 2026-10-14 | 일일 레포트에 바젤3 특별 섹션 추가: 바젤3 최종안·SLR·LCR 관련 규제 뉴스를 키워드별 Exa 검색(7일)으로 모아 LLM이 채권 평가(국채 수요·기간 프리미엄·스왑 스프레드)와 변동성(딜러 대차대조표 제약·시장 유동성) 경로로 정리. 크립토 특별 섹션과 공통 엔진 사용, 판정 불변. |
 | v3.72 | 2026-10-12 | 대표 자산군에 이더리움(ETH-USD) 추가(13종). 일일 레포트에 RWA·비트마인 키워드 암호화폐 뉴스를 다루는 크립토 특별 섹션 추가(Exa 키워드별 검색 + LLM 정리, 판정 불변). 일일 레포트에서 백테스트 요약 섹션 삭제(수동 백테스트 자체는 유지). |
 | v3.71 | 2026-10-07 | React 사이트 전체를 MTS(모바일 증권 앱)형 디자인으로 개편: 다크 기본·라이트 전환, 상단 시각·대표 자산군 시세 티커, 하단 탭바, 시그널 요약·AI 시황 접기·관심종목형 목록(스파크라인·등락률·상세 펼침), S&P 500 검색·매수/매도 필터, 월별 리포트 목록. 차트 탭은 900px 이상에서 v3.70 HTS 화면, 그 미만에서 MTS 단일 열 화면(종목 검색 시트·기간·보조지표 토글·시세 정보)이며 선택 종목을 공유한다. |
@@ -19,7 +20,7 @@
 | v3.63 | 2026-09-09 | OHLCV 유효성 검증, 불완전 대표 자산군 수집·추천 배치의 발행 차단. |
 
 리팩토링 직전 명세 원문은 [v3.63 작업 전 스냅샷](archive/investment_assistant_spec_v3.63_before_v3.64.md)에 보존한다.
-직전 현재 명세는 [v3.72 스냅샷](archive/investment_assistant_spec_v3.72.md)에 보존한다.
+직전 현재 명세는 [v3.73 스냅샷](archive/investment_assistant_spec_v3.73.md)에 보존한다.
 이전 버전별 전체 문서는 [archive/](archive/)에 보관한다. 아카이브는 당시 경로와 운영 상태의 기록이며 현재 실행 지침은 본 문서와 README를 따른다.
 기존 에이전트 안내 원문도 [아카이브](archive/CLAUDE_before_v3.64.md)에 보존한다.
 
@@ -52,6 +53,7 @@ Python 3.11 이상에서 `python -m pip install -e .`로 설치한다.
 | 일일 수집 | `python -m invest_assistant.pipelines.collect update` |
 | 구성종목 동기화 | `python -m invest_assistant.pipelines.collect sync` |
 | 일일 추천·발행 | `python -m invest_assistant.pipelines.recommend` |
+| 주간 리포트 | `python -m invest_assistant.pipelines.weekly [--week YYYY-Www]` |
 | 전체 백테스트 | `python -m invest_assistant.pipelines.backtest full-universe` |
 | 회귀 테스트 | `python -m unittest discover -s tests -v` |
 
@@ -148,9 +150,25 @@ React 데이터는 `docs/data/`에 저장한다. Telegram은 요약과 레포트
 실행: `python -m invest_assistant.pipelines.recommend --as-of YYYY-MM-DD` (반복 지정 가능).
 백필 날짜는 시그널 이력에 기록되어 다음 정규 실행의 `docs/data/reports.json`에 반영된다.
 
+### 주간 리포트 (v3.74)
+
+대상은 미국 거래일 기준 한 주(월~금 종가)이며 ISO 주차(예: `2026-W44`)로 식별한다. 이는 KST 화~토에 받는 일일 리포트 5개(파일명은 미국 거래일 `docs/reports/{date}.html`)에 해당한다.
+거래일은 저장된 SPY 봉에서 구하므로 휴장 주도 그대로 처리한다. NYSE 정규 휴장일은 `analysis/weekly.py`의 규칙으로 계산한다.
+정규 실행은 미국 동부 기준 토요일이 지난 가장 최근 주를 대상으로 하며, 13종 모두 그 주 마지막 거래일 봉이 있고 거래일이 NYSE 달력과 같고 시그널 이력에 마지막 거래일 13종 기록이 있어야 한다. 하나라도 어긋나면 발행 전에 실패한다.
+`--week YYYY-Www`는 완료된 과거 주를 재생성하며 Telegram과 새 Exa 검색을 생략하고 그 주 마지막 거래일 이후의 시세·이력·기록을 읽지 않는다(이력 공백은 경고).
+
+- 주간 자산 리포트 `docs/reports/weekly/{week}.html`: 한 줄 요약·국면(위험선호/위험회피/혼조)·근거(LLM, 실패 시 규칙 기반), 주간 성과표(직전 주 종가 대비 수익률, 미국 거래일 고가·저가, 주말 종가, 주초→주말 기록, 트레일링 스탑·DC20 상단까지 거리), 수익률 순위 막대(Plotly), 시그널 변화 지도(직전 주 마지막 날 포함, 전날 기록과 달라진 전환 강조), 자산군별 분석과 6개월 일봉 차트, VIX·美 13주/10년/30년 금리 주간 변화, 다음 주 체크포인트, 특별 섹션·일일 리포트 링크, 면책 문구.
+- 시그널 표기는 `_signal_history.json` 기록만 사용한다. 저장된 매도는 종가가 스탑 아래인 동안 매일 기록되는 상태이므로, "변화"는 연속된 기록 사이의 전환으로 정의한다.
+- 특별 섹션 주간 리포트 `docs/reports/weekly/{week}-special.html`: 핵심 5가지, 크립토·바젤3 테마별 반복/신규/소멸 이슈, 수치 추적표, ETH·BTC/TLT·IEF 주간 시그널과의 연결(참고용), 다음 주에 볼 것. 입력은 `_special_briefings.json`의 일별 기록(없는 날은 Drive 뉴스 아카이브 원문)과 정규 실행의 새 7일 Exa 키워드 검색이다. 수치 추적표는 원문 기사에서 다시 확인되는 수치만 싣는다. `SKIP_LLM_AND_NEWS`이면 이 페이지를 만들지 않는다.
+- 일일 추천 파이프라인은 크립토·바젤3·해외 이슈 브리핑 결과와 참고 뉴스를 `_special_briefings.json`(`{date: {crypto, basel3, macro}}`, 최근 180일)에 누적한다. `as_of` 백필과 테스트 실행은 저장하지 않는다.
+- LLM 호출은 `recommendations/briefing.py`의 주간 함수, 폴백 조합은 `recommendations/weekly.py`, 계산은 `analysis/weekly.py`, 렌더링은 `reporting/weekly.py`가 담당한다. 렌더링·출력 모듈은 LLM을 호출하지 않고 외부 문자열을 HTML 이스케이프한다.
+- `docs/data/weekly_reports.json`은 `[{week, period, asset_url, special_url}]`(최신순, URL은 사이트 루트 기준 상대경로)이며 기존 `reports.json`과 별개다. `IS_TEST_REPORT`는 파일명에 `_test`를 붙이고 인덱스·Telegram을 생략한다. Drive에는 `_weekly_report_{name}.html`로도 저장한다.
+- Telegram은 정규 실행 발행 후 국면·요약·최고/최저 수익률·시그널 전환과 두 페이지 링크를 보낸다.
+
 ## 자동화·배포
 
 GitHub Actions의 `collect.yml` 성공 후 `recommend.yml`이 실행되는 구조를 유지한다.
+`weekly.yml`은 일요일 20:37 UTC(월요일 05:37 KST)에 실행해 GitHub 예약 지연을 감안해도 07시 전에 발행하도록 한다. 수동 실행 입력은 `skip_llm_and_news`, `is_test`, `week`이며 `weekly-report` concurrency 그룹과 `git pull --rebase` 재시도로 push 충돌을 막는다.
 수집이 실패하면 `collect.yml`이 같은 실행 안에서 `COLLECTION_RUN_RETRY_DELAY_SEC`(기본 1800초) 간격으로 최대 `COLLECTION_RUN_ATTEMPTS`(기본 4회)까지 다시 시도한다. 새 실행을 띄우지 않으므로 `recommend.yml` 연결은 최종 결과에 한 번만 반응한다. 다음 시도가 13~22시 UTC(미국 장중)에 걸리면 재시도를 중단한다.
 두 워크플로는 패키지 설치 후 테스트를 수행하고 `python -m` 명령으로 실행한다.
 React 배포는 `apps/web/`에서 빌드하며 기존 `docs/` 경로로 발행한다.

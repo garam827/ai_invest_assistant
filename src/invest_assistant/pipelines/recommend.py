@@ -24,6 +24,7 @@ from invest_assistant.recommendations.engine import (
     get_recommendation_for_ticker,
     get_sp500_signal_summary,
     load_signal_history,
+    record_special_briefings,
 )
 from invest_assistant.reporting import report as report_builder
 from invest_assistant.storage import reports as report_store
@@ -171,6 +172,16 @@ def run_asset_class_recommendations(
             basel3_special = get_basel3_special_briefing(drive_db)
         except Exception:
             logger.exception("Failed to generate Basel III special briefing (report will omit this section)")
+
+    # Keep the day's briefings for the weekly special report (pipelines/weekly.py) -- real
+    # current-day runs only, same gating as the signal history above.
+    if as_of is None and not config.IS_TEST_REPORT:
+        try:
+            record_special_briefings(
+                drive_db, date, {"crypto": crypto_special, "basel3": basel3_special, "macro": macro_issues}
+            )
+        except Exception:
+            logger.exception("Failed to record special briefings (report/Telegram unaffected)")
 
     overview = ""
     if results and as_of is None and not config.SKIP_LLM_AND_NEWS:

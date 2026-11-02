@@ -7,6 +7,8 @@ from invest_assistant.paths import REPORT_DIR
 
 REPORT_FILENAME_PREFIX = "_report_"
 LOCAL_REPORT_DIR = str(REPORT_DIR)
+WEEKLY_REPORT_FILENAME_PREFIX = "_weekly_report_"
+LOCAL_WEEKLY_REPORT_DIR = os.path.join(LOCAL_REPORT_DIR, "weekly")
 
 def save_report(drive_db, date: str, report_html: str) -> None:
     """Persist the report to Drive (for the Streamlit history tab) and write a local
@@ -27,6 +29,19 @@ def save_report(drive_db, date: str, report_html: str) -> None:
     os.makedirs(LOCAL_REPORT_DIR, exist_ok=True)
     with open(os.path.join(LOCAL_REPORT_DIR, f"{date}.html"), "w", encoding="utf-8") as f:
         f.write(report_html)
+
+
+def save_weekly_report(drive_db, name: str, report_html: str) -> str:
+    """Weekly counterpart of save_report: Drive `_weekly_report_{name}.html` plus
+    docs/reports/weekly/{name}.html (`name` like "2026-W44", "2026-W44-special", optionally
+    "_test"-suffixed). The weekly/ subfolder keeps these out of export_reports_index's
+    daily listing. Returns the local path."""
+    drive_db.save_text(f"{WEEKLY_REPORT_FILENAME_PREFIX}{name}.html", report_html)
+    os.makedirs(LOCAL_WEEKLY_REPORT_DIR, exist_ok=True)
+    path = os.path.join(LOCAL_WEEKLY_REPORT_DIR, f"{name}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report_html)
+    return path
 
 
 def list_report_dates(drive_db) -> list[str]:

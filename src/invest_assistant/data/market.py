@@ -58,6 +58,29 @@ def fetch_macro_snapshot() -> dict:
     return snapshot
 
 
+def fetch_macro_history(start: str, end: str) -> dict[str, pd.Series]:
+    """Daily closes for MACRO_TICKERS between `start` and `end` (both YYYY-MM-DD, inclusive),
+    indexed by YYYY-MM-DD strings -- for the weekly report's macro change table. The explicit
+    end bound keeps a historical `--week` rerun from reading later bars. A per-ticker failure
+    is skipped, same as fetch_macro_snapshot.
+    """
+    end_exclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    closes = {}
+    for ticker in MACRO_TICKERS:
+        try:
+            history = yahoo_gate.call(
+                lambda: yf.Ticker(ticker).history(start=start, end=end_exclusive, interval="1d", timeout=30)
+            )
+            if history.empty:
+                continue
+            series = history["Close"].copy()
+            series.index = pd.to_datetime(series.index).strftime("%Y-%m-%d")
+            closes[ticker] = series
+        except Exception:
+            logger.exception("Failed to fetch macro history for %s", ticker)
+    return closes
+
+
 def _fetch_sp500_table() -> pd.DataFrame:
     """Scrape the current S&P 500 constituent table from Wikipedia (Symbol + GICS Sector, among others)."""
     # Wikipedia blocks urllib's default user agent (403); fetch with a browser-like one instead.

@@ -281,3 +281,32 @@ def build_ticker_chart_figure(ticker: str, view: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(showgrid=True, gridcolor="rgba(150,150,150,0.15)")
 
     return fig
+
+
+def build_weekly_return_bar_figure(returns: dict[str, float]) -> go.Figure:
+    """Horizontal bar ranking of weekly returns (%), best at the top -- weekly report only.
+    Up/down colors follow build_ticker_chart_figure's candles."""
+    ranked = sorted(returns.items(), key=lambda item: item[1])
+    tickers = [ticker for ticker, _ in ranked]
+    values = [value for _, value in ranked]
+    fig = go.Figure(
+        go.Bar(
+            x=values,
+            y=tickers,
+            orientation="h",
+            marker_color=["#26a69a" if v >= 0 else "#ef5350" for v in values],
+            text=[f"{v:+.2f}%" for v in values],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate="%{y}: %{x:+.2f}%<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=40 * len(tickers) + 80,
+        template="plotly_white",
+        font=dict(family=FONT_FAMILY),
+        margin=dict(t=20, b=40, r=60, l=80),
+        xaxis=dict(title="주간 수익률 (%)", zeroline=True, zerolinecolor="#999", ticksuffix="%"),
+        showlegend=False,
+    )
+    return fig
