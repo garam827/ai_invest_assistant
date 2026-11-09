@@ -310,3 +310,35 @@ def build_weekly_return_bar_figure(returns: dict[str, float]) -> go.Figure:
         showlegend=False,
     )
     return fig
+
+
+def build_fx_trend_figure(label: str, trend: dict) -> go.Figure:
+    """Daily close over the trailing window of analysis.fx.compute_fx_trend, with the window's
+    fixed average and the trailing average as of each day -- daily report FX section only."""
+    years = trend["years"]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=trend["dates"], y=trend["closes"], mode="lines", name="종가",
+        line=dict(color="#37474f", width=1.4),
+        hovertemplate="%{x}: %{y:,.2f}<extra>종가</extra>",
+    ))
+    fig.add_trace(go.Scatter(
+        x=trend["dates"], y=trend["rolling_avg"], mode="lines", name=f"{years}년 이동평균",
+        line=dict(color="#ff8f00", width=1.6), connectgaps=False,
+        hovertemplate="%{x}: %{y:,.2f}<extra>" + f"{years}년 이동평균</extra>",
+    ))
+    fig.add_hline(
+        y=trend["average"], line=dict(color="#1565c0", dash="dash", width=1.2),
+        annotation_text=f"최근 {years}년 평균 {trend['average']:,.2f}", annotation_position="top left",
+    )
+    fig.update_layout(
+        title=f"{label} — 최근 {years}년",
+        height=380,
+        template="plotly_white",
+        font=dict(family=FONT_FAMILY),
+        margin=dict(t=50, b=40, r=20, l=60),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1),
+        hovermode="x unified",
+    )
+    fig.update_yaxes(tickformat=",.0f")
+    return fig

@@ -151,6 +151,71 @@ def _build_special_section_html(title: str, section: dict | None) -> str:
     news_html = _build_news_cards_html(section.get("news") or [])
     return f"<h2>{title}</h2>{text_html}{news_html}"
 
+def _fx_trend_rows(fx_trends: dict | None) -> list[tuple[str, dict, list[str]]]:
+    """(ticker, trend, cells) per FX series -- shared by the HTML table and the Markdown
+    mirror so the two can't drift apart. Cells follow _fx_trend_headers after the label."""
+    rows = []
+    for ticker, trend in (fx_trends or {}).items():
+        if not trend:
+            continue
+        cells = [
+            trend["latest_date"],
+            f"{trend['latest_close']:,.2f}",
+            f"{trend['average']:,.2f}",
+            f"{trend['diff']:+,.2f} ({trend['diff_pct']:+.2f}%)",
+            f"{trend['percentile']:.0f}%",
+            f"{trend['min']:,.2f} ({trend['min_date']}) / {trend['max']:,.2f} ({trend['max_date']})",
+        ]
+        rows.append((ticker, trend, cells))
+    return rows
+
+
+def _fx_trend_headers(years: int) -> list[str]:
+    return ["자산", "기준일", "최신 종가", f"{years}년 평균", "평균 대비", f"{years}년 백분위", f"{years}년 최저 / 최고"]
+
+
+def _build_fx_trend_html(fx_trends: dict | None, chart_js_loaded: list[bool]) -> str:
+    """fx_trends: {ticker: analysis.fx.compute_fx_trend output} for universe.FX_TICKERS.
+    Display-only market context like macro_snapshot -- not Tom Basso rules and never a
+    signal. Omitted entirely if empty."""
+    rows = _fx_trend_rows(fx_trends)
+    if not rows:
+        return ""
+    years = rows[0][1]["years"]
+    header = "".join(f"<th>{h}</th>" for h in _fx_trend_headers(years))
+    body, charts, notes = [], [], []
+    for ticker, trend, cells in rows:
+        label = instrument_universe.FX_TICKERS.get(ticker, {}).get("label", ticker)
+        diff_class = "pnl-positive" if trend["diff"] >= 0 else "pnl-negative"
+        tds = [f"<td>{_esc(label)}</td>"] + [
+            f"<td class='{diff_class}'>{c}</td>" if i == 3 else f"<td>{c}</td>" for i, c in enumerate(cells)
+        ]
+        body.append(f"<tr>{''.join(tds)}</tr>")
+        if not trend["full_window"]:
+            notes.append(f"{_esc(label)}: 저장된 이력이 {trend['window_start']}부터라 {years}년에 못 미칩니다.")
+        try:
+            fig = chart_builder.build_fx_trend_figure(label, trend)
+            charts.append(fig.to_html(full_html=False, include_plotlyjs="cdn" if not chart_js_loaded[0] else False))
+            chart_js_loaded[0] = True
+        except Exception:
+            continue
+    caption = (
+        f"<p class='macro-snapshot'>마지막 데이터 기준 최근 {years}년 일별 종가 평균과 비교한 참고 지표입니다 "
+        "(yfinance 종가, 추세 확인용 — 매매 판정·은행 매매기준율과 무관). "
+        "백분위는 기간 내 종가 중 최신 종가 이하였던 날의 비율입니다(100%면 기간 최고).</p>"
+    )
+    notes_html = "".join(f"<p class='macro-snapshot'>{n}</p>" for n in notes)
+    chart_html = (
+        f"<details open><summary>📈 환율 차트 ({years}년)</summary>"
+        + "".join(f"<div class='chart-frame'>{c}</div>" for c in charts) + "</details>"
+        if charts else ""
+    )
+    return (
+        f"<h2>💱 환율 {years}년 평균 비교</h2>{caption}"
+        f"<table class='dense'><tr>{header}</tr>{''.join(body)}</table>{notes_html}{chart_html}"
+    )
+
+
 def _build_summary_table_html(results: dict) -> str:
     """results.items()는 ASSET_CLASS_TICKERS 정의 순서를 그대로 따르므로(dict는 삽입 순서 보존),
     같은 카테고리 종목이 이미 연속으로 붙어 있다 — 그 경계마다 그룹 헤더 행을 끼워 넣기만 하면
@@ -371,6 +436,7 @@ def _build_report_markdown(
     macro_issues: dict | None = None,
     crypto_special: dict | None = None,
     basel3_special: dict | None = None,
+    fx_trends: dict | None = None,
 ) -> str:
     """Markdown mirror of everything from the page title through the 모의 투자 section
     (i.e. everything *before* the "오늘의 매수/매도 시그널" heading) --
@@ -447,6 +513,21 @@ def _build_report_markdown(
             )
         lines.append("")
 
+    fx_rows = _fx_trend_rows(fx_trends)
+    if fx_rows:
+        years = fx_rows[0][1]["years"]
+        headers = _fx_trend_headers(years)
+        lines += [
+            f"## 환율 {years}년 평균 비교",
+            "",
+            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join("---" for _ in headers) + " |",
+        ]
+        for ticker, _, cells in fx_rows:
+            label = instrument_universe.FX_TICKERS.get(ticker, {}).get("label", ticker)
+            lines.append("| " + " | ".join(_md_cell(c) for c in [label, *cells]) + " |")
+        lines.append("")
+
     return "\n".join(lines).strip()
 
 
@@ -460,7 +541,7 @@ def _build_copy_summary_bar_html(markdown_text: str) -> str:
     markdown_json = json.dumps(markdown_text).replace("</script", "<\\/script")
     return f"""<div class="copy-summary-bar">
 <button id="copy-summary-btn" onclick="copyReportSummary()">📋 위 내용 Markdown으로 복사</button>
-<span class="copy-caption">제목부터 이 지점 위까지(시장 참고 지표·오늘 챙겨야 할 해외 이슈·요약 표·최근 시그널 이력·모의 투자)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
+<span class="copy-caption">제목부터 이 지점 위까지(시장 참고 지표·오늘 챙겨야 할 해외 이슈·요약 표·최근 시그널 이력·모의 투자·환율 평균 비교)를 클립보드에 복사합니다 — 다른 LLM에 시황 분석을 맡길 때 붙여넣으세요.</span>
 </div>
 <script>
 const REPORT_MARKDOWN = {markdown_json};
@@ -490,6 +571,7 @@ def build_daily_report_html(
     basel3_special: dict | None = None,
     overview: str = "",
     as_of: str | None = None,
+    fx_trends: dict | None = None,
 ) -> str:
     """Build the full standalone HTML report page for one day's recommendation results.
 
@@ -524,6 +606,10 @@ def build_daily_report_html(
     optional -- the RWA/비트마인 crypto news digest, rendered right after the macro issues.
     `basel3_special` (get_basel3_special_briefing's output) follows it: Basel III regulatory
     news read for its effect on bond valuation and volatility.
+
+    `fx_trends` ({ticker: analysis.fx.compute_fx_trend output}, already truncated at `as_of`
+    by the caller) adds the display-only FX section comparing each latest close with its
+    trailing 3-year average (see _build_fx_trend_html); omitted if not given/empty.
     """
     date = next(iter(results.values()))["date"] if results else datetime.date.today().isoformat()
 
@@ -538,11 +624,13 @@ def build_daily_report_html(
 
     report_markdown = _build_report_markdown(
         date, overview, results, signal_history, paper_positions, sp500_signals, macro_snapshot,
-        macro_issues, crypto_special, basel3_special,
+        macro_issues, crypto_special, basel3_special, fx_trends,
     )
     copy_summary_html = _build_copy_summary_bar_html(report_markdown)
 
     chart_js_loaded = [False]  # Plotly CDN <script> only needs to load once across all charts
+    # Built first: it renders above the signal charts, so it must carry the Plotly <script>.
+    fx_html = _build_fx_trend_html(fx_trends, chart_js_loaded)
     signal_html = _build_signal_sections_html(drive_db, results, chart_js_loaded, as_of)
     hold_html = _build_hold_charts_html(drive_db, results, chart_js_loaded, as_of)
 
@@ -567,6 +655,7 @@ def build_daily_report_html(
 {table_html}
 {history_html}
 {paper_html}
+{fx_html}
 {copy_summary_html}
 <h2>오늘의 매수/매도 시그널</h2>
 {signal_html}
