@@ -21,7 +21,7 @@ from invest_assistant.storage.runtime import (
     require_private_operation,
     ticker_transaction,
 )
-from invest_assistant.universe import ASSET_CLASS_TICKERS, UNIVERSE_FILENAME
+from invest_assistant.universe import ASSET_CLASS_TICKERS, FX_TICKERS, UNIVERSE_FILENAME
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,10 @@ def sync_universe(drive_db: DriveDB, end: str | None = None) -> dict:
     description_map = {
         row["Symbol"]: f"{row['Security']} ({row['GICS Sub-Industry']})" for _, row in table.iterrows()
     }
-    # Exclude asset-class ETF proxies from S&P membership accounting entirely — they're never
-    # S&P 500 constituents, so without this they'd get diffed as "removed" on every sync.
-    stored = set(drive_db.list_tickers()) - set(ASSET_CLASS_TICKERS)
+    # Exclude asset-class ETF proxies and display-only FX series from S&P membership accounting
+    # entirely — they're never S&P 500 constituents, so without this they'd get diffed as
+    # "removed" on every sync.
+    stored = set(drive_db.list_tickers()) - set(ASSET_CLASS_TICKERS) - set(FX_TICKERS)
 
     to_add = sorted(current_sp500 - stored)
     inactive = sorted(stored - current_sp500)
@@ -174,6 +175,7 @@ def run_daily_update(drive_db: DriveDB, tickers: list[str] | None = None, end: s
     if tickers is None:
         universe = drive_db.load_json(UNIVERSE_FILENAME)
         tickers = (universe or {}).get("active_tickers") or drive_db.list_tickers() or get_sp500_tickers()
+        tickers = [t for t in tickers if t not in FX_TICKERS]
     return _run_updates(drive_db, tickers, end=end)
 
 
@@ -184,8 +186,18 @@ def run_asset_class_update(drive_db: DriveDB, end: str | None = None) -> dict:
     return report
 
 
+def run_fx_update(drive_db: DriveDB, end: str | None = None) -> dict:
+    """Display-only FX series (FX_TICKERS). A failure is reported, not raised: FX feeds only an
+    advisory report section, so it must not block the representative-asset publication."""
+    report = _run_updates(drive_db, list(FX_TICKERS), end=end)
+    if report["failed"]:
+        logger.warning("FX collection incomplete (report will omit or show stale FX): %s", report["failed"])
+    return report
+
+
 def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
-    """One button's worth of work: S&P 500 membership sync + daily update + asset-class ETF update.
+    """One button's worth of work: S&P 500 membership sync + daily update + asset-class ETF update
+    + display-only FX update.
 
     `end` (YYYY-MM-DD, exclusive): normally unset for the daily cron (fetch everything new,
     unbounded). Pass it for a one-off manual catch-up that must not pull in a later trading
@@ -194,7 +206,8 @@ def run_full_collection(drive_db: DriveDB, end: str | None = None) -> dict:
     sync_result = sync_universe(drive_db, end=end)
     daily = run_daily_update(drive_db, end=end)
     assets = run_asset_class_update(drive_db, end=end)
-    return {**sync_result, "collection": {"stocks": daily, "assets": assets}}
+    fx = run_fx_update(drive_db, end=end)
+    return {**sync_result, "collection": {"stocks": daily, "assets": assets, "fx": fx}}
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -211,6 +224,7 @@ if __name__ == "__main__":
     if args.mode == "init":
         run_initial_ingestion(db)
         run_asset_class_update(db)
+        run_fx_update(db)
     elif args.mode == "sync":
         sync_universe(db)
     else:

@@ -17,6 +17,7 @@
 | `report_builder.py` | `reporting/report.py`, `storage/reports.py` | HTML·Markdown 구성과 저장·조회 분리 |
 | `chart_builder.py`, `blog_chart_builder.py` | `reporting/charts.py`, `reporting/blog_charts.py` | 공통 차트 |
 | `static_export.py`, `telegram_notifier.py` | `publishing/static.py`, `publishing/telegram.py` | 공개 JSON·Telegram |
+| (v3.75 신규) | `analysis/fx.py` | 표시 전용 환율(`universe.FX_TICKERS`)의 최근 3년 평균 비교 계산 |
 | (v3.74 신규) | `analysis/weekly.py`, `recommendations/weekly.py`, `reporting/weekly.py`, `pipelines/weekly.py` | 주간 계산·NYSE 휴장일 / 주간 LLM 해설과 규칙 기반 대체 / 주간 HTML 렌더링 / 주간 실행 흐름 |
 
 표의 축약 경로는 `src/invest_assistant/` 아래입니다. 패키지 import는

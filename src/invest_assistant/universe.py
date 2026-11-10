@@ -89,3 +89,11 @@ MACRO_TICKERS = {
     "^TNX": {"label": "美 10년물 국채금리", "format": "yield_pct"},
     "^TYX": {"label": "美 30년 장기 국채금리", "format": "yield_pct"},
 }
+
+# Display-only FX series (v3.75): collected and stored like any ticker, but never fed to
+# signal_engine, recommendations, or S&P 500 membership accounting. The daily report compares
+# the latest close with its trailing FX_TREND_YEARS average.
+FX_TICKERS = {
+    "KRW=X": {"label": "원/달러 환율 (USD/KRW)", "unit": "원"},
+}
+FX_TREND_YEARS = 3

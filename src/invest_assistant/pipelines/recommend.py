@@ -7,6 +7,7 @@ import logging
 
 from invest_assistant import config
 from invest_assistant import universe as instrument_universe
+from invest_assistant.analysis import fx as fx_analysis
 from invest_assistant.data import market as data_fetcher
 from invest_assistant.portfolio import paper as paper_trading
 from invest_assistant.publishing import static as static_export
@@ -183,6 +184,18 @@ def run_asset_class_recommendations(
         except Exception:
             logger.exception("Failed to record special briefings (report/Telegram unaffected)")
 
+    # Display-only FX section (universe.FX_TICKERS): latest close vs. its trailing 3-year
+    # average, read from Drive like any stored ticker. Data-driven, so an `as_of` backfill keeps
+    # it, truncated at that day. A missing/failed series just omits its row.
+    fx_trends = {}
+    for fx_ticker in instrument_universe.FX_TICKERS:
+        try:
+            trend = fx_analysis.compute_fx_trend(drive_db.load_ticker(fx_ticker), as_of=as_of)
+            if trend:
+                fx_trends[fx_ticker] = trend
+        except Exception:
+            logger.exception("Failed to compute FX trend for %s (report will omit it)", fx_ticker)
+
     overview = ""
     if results and as_of is None and not config.SKIP_LLM_AND_NEWS:
         try:
@@ -205,6 +218,7 @@ def run_asset_class_recommendations(
                 basel3_special=basel3_special,
                 overview=overview,
                 as_of=as_of,
+                fx_trends=fx_trends,
             )
             report_store.save_report(drive_db, report_date, report_html)
             # A test publish now does reach docs/reports/GitHub Pages too (v3.52, under its
